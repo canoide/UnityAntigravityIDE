@@ -161,6 +161,20 @@ public class AntigravityScriptEditor : IExternalCodeEditor
     {
         if (string.IsNullOrEmpty(path)) return false;
 
+        // Strictly avoid standalone agent/secondary background binaries
+        if (path.IndexOf("agent", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("cli", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("helper", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("daemon", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("crashreporter", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("updater", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("notification", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("renderer", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("gpu", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return false;
+        }
+
         // Check filename directly
         var filename = Path.GetFileName(path);
         var normalized = NormalizeFileName(filename);
@@ -468,6 +482,27 @@ public class AntigravityScriptEditor : IExternalCodeEditor
 
     public bool TryGetInstallationForPath(string editorPath, out CodeEditor.Installation installation)
     {
+        if (string.IsNullOrEmpty(editorPath))
+        {
+            installation = default;
+            return false;
+        }
+
+        // Strictly avoid standalone agent/secondary background binaries
+        if (editorPath.IndexOf("agent", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("cli", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("helper", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("daemon", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("crashreporter", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("updater", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("notification", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("renderer", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("gpu", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            installation = default;
+            return false;
+        }
+
         var filename = Path.GetFileName(editorPath);
         var normalized = NormalizeFileName(filename);
         bool filenameMatch = k_SupportedFileNames.Contains(normalized);

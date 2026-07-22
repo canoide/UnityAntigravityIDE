@@ -26,7 +26,8 @@ public static class UnityDebugBridge
 
     static UnityDebugBridge()
     {
-        if (EditorPrefs.GetBool(PrefKey_AutoStartBridge, false))
+        // Default to auto-starting the debug bridge so it works seamlessly out-of-the-box
+        if (EditorPrefs.GetBool(PrefKey_AutoStartBridge, true))
         {
             StartBridge();
         }
@@ -215,6 +216,35 @@ public static class UnityDebugBridge
                 EditorApplication.delayCall += () => EditorApplication.isPlaying = false;
                 return "{\"type\":\"response\",\"status\":\"stopped\"}";
             }
+            else if (command.Contains("\"type\":\"find_usages\""))
+            {
+                string classPath = ExtractJsonValue(command, "class_path");
+                if (string.IsNullOrEmpty(classPath))
+                {
+                    return "{\"type\":\"error\",\"message\":\"missing class_path\"}";
+                }
+                return FindUsagesOfClass(classPath);
+            }
+            else if (command.Contains("\"type\":\"ping_asset\""))
+            {
+                string assetPath = ExtractJsonValue(command, "asset_path");
+                if (string.IsNullOrEmpty(assetPath))
+                {
+                    return "{\"type\":\"error\",\"message\":\"missing asset_path\"}";
+                }
+
+                // Focus/Ping the asset in Unity (must be done on the main thread via delayCall)
+                EditorApplication.delayCall += () => {
+                    var obj = AssetDatabase.LoadMainAssetAtPath(assetPath);
+                    if (obj != null)
+                    {
+                        Selection.activeObject = obj;
+                        EditorGUIUtility.PingObject(obj);
+                        EditorApplication.ExecuteMenuItem("Window/General/Project");
+                    }
+                };
+                return "{\"type\":\"response\",\"status\":\"pinged\"}";
+            }
             else
             {
                 return "{\"type\":\"error\",\"message\":\"unknown command\"}";
@@ -224,6 +254,108 @@ public static class UnityDebugBridge
         {
             return $"{{\"type\":\"error\",\"message\":\"{ex.Message.Replace("\"", "\\\"")}\"}}";
         }
+    }
+
+    private static string ExtractJsonValue(string json, string key)
+    {
+        string pattern = $"\"{key}\"\\s*:\\s*\"([^\"]+)\"";
+        var match = System.Text.RegularExpressions.Regex.Match(json, pattern);
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    private static string FindUsagesOfClass(string classPath)
+    {
+        try
+        {
+            string guidValue = null;
+            string metaPath = classPath + ".meta";
+
+            // Prioritize reading .meta file directly (100% thread-safe and extremely fast on background threads)
+            if (File.Exists(metaPath))
+            {
+                foreach (var line in File.ReadAllLines(metaPath))
+                {
+                    if (line.Trim().StartsWith("guid:"))
+                    {
+                        guidValue = line.Substring(line.IndexOf("guid:") + 5).Trim();
+                        break;
+                    }
+                }
+            }
+
+            // Fallback to AssetDatabase ONLY if we can determine we are on the main thread,
+            // but since meta files are guaranteed to exist, this is almost never reached.
+            if (string.IsNullOrEmpty(guidValue))
+            {
+                // In background threads, AssetDatabase throws thread violations, so we ignore it.
+                // Every Unity script is guaranteed to have a .meta file next to it.
+            }
+
+            if (string.IsNullOrEmpty(guidValue))
+            {
+                return "{\"type\":\"usages_result\",\"usages\":[]}";
+            }
+
+            return ScanProjectForGuid(guidValue);
+        }
+        catch (Exception ex)
+        {
+            return $"{{\"type\":\"error\",\"message\":\"{ex.Message.Replace("\"", "\\\"")}\"}}";
+        }
+    }
+
+    private static string ScanProjectForGuid(string guid)
+    {
+        var usages = new List<string>();
+        string projectDir = Directory.GetCurrentDirectory();
+        string assetsDir = Path.Combine(projectDir, "Assets");
+
+        if (!Directory.Exists(assetsDir))
+        {
+            return "{\"type\":\"usages_result\",\"usages\":[]}";
+        }
+
+        string[] extensions = { "*.prefab", "*.unity", "*.asset" };
+        var candidateFiles = new List<string>();
+
+        foreach (var ext in extensions)
+        {
+            try
+            {
+                candidateFiles.AddRange(Directory.GetFiles(assetsDir, ext, SearchOption.AllDirectories));
+            }
+            catch { }
+        }
+
+        foreach (var file in candidateFiles)
+        {
+            try
+            {
+                string content = File.ReadAllText(file);
+                if (content.Contains(guid))
+                {
+                    string relativePath = file.Replace("\\", "/");
+                    int assetsIndex = relativePath.IndexOf("Assets/", StringComparison.OrdinalIgnoreCase);
+                    if (assetsIndex >= 0)
+                    {
+                        relativePath = relativePath.Substring(assetsIndex);
+                    }
+                    usages.Add(relativePath);
+                }
+            }
+            catch { }
+        }
+
+        var sb = new StringBuilder();
+        sb.Append("{\"type\":\"usages_result\",\"usages\":[");
+        for (int i = 0; i < usages.Count; i++)
+        {
+            sb.Append($"\"{usages[i].Replace("\\", "/")}\"");
+            if (i < usages.Count - 1) sb.Append(",");
+        }
+        sb.Append("]}");
+
+        return sb.ToString();
     }
 
     private static string GetDebugInfoJson()

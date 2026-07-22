@@ -4,6 +4,7 @@ import * as path from 'path';
 import { registerCompletionProviders } from './completion/unityCompletions';
 import { registerCommands } from './commands/commands';
 // import { registerCsprojFixer } from './csproj/csprojFixer'; // Disabled: interferes with DotRush compilation
+import { ReferenceCodeLensProvider } from './csproj/codeLensProvider';
 
 const DOTRUSH_EXTENSION_ID = 'nromanov.dotrush';
 
@@ -21,6 +22,15 @@ export async function activate(context: vscode.ExtensionContext) {
     registerCompletionProviders(context);
     registerCommands(context);
     // registerCsprojFixer(context); // Disabled: interferes with DotRush compilation
+
+    // Register Reference CodeLens Provider
+    const codeLensProvider = new ReferenceCodeLensProvider();
+    context.subscriptions.push(
+        vscode.languages.registerCodeLensProvider(
+            { language: 'csharp', scheme: 'file' },
+            codeLensProvider
+        )
+    );
 
     // Watch for .csproj changes from Unity and auto-restart DotRush
     setupCsprojChangeWatcher(context);

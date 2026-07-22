@@ -61,8 +61,22 @@
                 "command": "antigravity-unity.regenerateProjectFiles",
                 "title": "Regenerate Project Files",
                 "category": "Antigravity"
+            },
+            {
+                "command": "antigravity-unity.findUsagesInAssets",
+                "title": "Find Usages in Unity Assets",
+                "category": "Antigravity"
             }
         ],
+        "menus": {
+            "editor/context": [
+                {
+                    "when": "resourceLangId == csharp",
+                    "command": "antigravity-unity.findUsagesInAssets",
+                    "group": "navigation"
+                }
+            ]
+        },
         "breakpoints": [
             {
                 "language": "csharp"
@@ -164,7 +178,22 @@
                 "language": "csharp",
                 "path": "./snippets/unity-csharp.json"
             }
-        ]
+        ],
+        "configuration": {
+            "title": "Antigravity Unity",
+            "properties": {
+                "antigravity.enableCodeLens": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable/disable reference and asset usage count CodeLens indicators above C# declarations."
+                },
+                "antigravity.debugPort": {
+                    "type": "integer",
+                    "default": 56000,
+                    "description": "The TCP port used to communicate with the running Unity Editor process."
+                }
+            }
+        }
     },
     "scripts": {
         "compile": "tsc -p ./",

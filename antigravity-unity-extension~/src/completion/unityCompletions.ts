@@ -103,14 +103,48 @@ export function registerCompletionProviders(context: vscode.ExtensionContext) {
                 token: vscode.CancellationToken,
                 completionContext: vscode.CompletionContext
             ): vscode.CompletionItem[] {
-                // Only provide completions inside a class body
                 const lineText = document.lineAt(position.line).text;
                 const linePrefix = lineText.substring(0, position.character);
+                const trimmedPrefix = linePrefix.trim();
 
-                // Check if we're likely inside a class body (simple heuristic)
+                // Skip inside comments or strings
+                if (trimmedPrefix.startsWith('//') || trimmedPrefix.startsWith('/*') || trimmedPrefix.startsWith('*')) {
+                    return [];
+                }
+
+                // Check if we're likely inside a class body
                 if (!isInsideClassBody(document, position)) {
                     return [];
                 }
+
+                // Parse existing modifier and return type typed by user to avoid duplicates
+                let modifier = 'private';
+                if (/\bpublic\b/.test(linePrefix)) modifier = 'public';
+                else if (/\bprotected\b/.test(linePrefix)) modifier = 'protected';
+                else if (/\binternal\b/.test(linePrefix)) modifier = 'internal';
+
+                let returnType = 'void';
+                if (/\bIEnumerator\b/.test(linePrefix)) returnType = 'IEnumerator';
+
+                // Determine the range of the typed keywords to replace
+                const wordRange = document.getWordRangeAtPosition(position);
+                let startCharacter = position.character;
+
+                // Match patterns like "private void Up" or "void Up" or just "Up"
+                const match = linePrefix.match(/(?:public|private|protected|internal)?\s*(?:virtual|override)?\s*(?:void|IEnumerator)?\s*[\w]*$/);
+                if (match && match[0].trim().length > 0) {
+                    startCharacter = linePrefix.indexOf(match[0]);
+                    if (startCharacter < 0) {
+                        startCharacter = wordRange ? wordRange.start.character : position.character;
+                    }
+                } else if (wordRange) {
+                    startCharacter = wordRange.start.character;
+                }
+
+                const replacementRange = new vscode.Range(
+                    new vscode.Position(position.line, startCharacter),
+                    position
+                );
 
                 return UNITY_MESSAGES.map(msg => {
                     const item = new vscode.CompletionItem(
@@ -120,13 +154,14 @@ export function registerCompletionProviders(context: vscode.ExtensionContext) {
 
                     item.detail = `${msg.signature} [${msg.category}]`;
                     item.documentation = new vscode.MarkdownString(
-                        `**Unity API Message** — ${msg.category}\n\n${msg.description}\n\n\`\`\`csharp\nprivate ${msg.signature}\n{\n    \n}\n\`\`\``
+                        `**Unity API Message** — ${msg.category}\n\n${msg.description}\n\n\`\`\`csharp\n${modifier} ${msg.signature.replace('void', returnType)}\n{\n    \n}\n\`\`\``
                     );
 
-                    // Insert the full method
-                    const params = extractParams(msg.signature);
+                    // Insert full method with correct signature and placement
+                    const signature = msg.signature.replace('void', returnType);
+                    item.range = replacementRange;
                     item.insertText = new vscode.SnippetString(
-                        `private ${msg.signature}\n{\n    $0\n}`
+                        `${modifier} ${signature}\n{\n    $0\n}`
                     );
 
                     item.sortText = `0_unity_${msg.name}`;
@@ -175,13 +210,18 @@ function isInsideClassBody(document: vscode.TextDocument, position: vscode.Posit
     let braceCount = 0;
     let foundClass = false;
 
+    // Scan backwards from current line to find nearest class definition
+    for (let i = position.line; i >= 0; i--) {
+        const line = document.lineAt(i).text;
+        if (line.match(/\bclass\b/)) {
+            foundClass = true;
+            break;
+        }
+    }
+
+    // Count braces up to position
     for (let i = 0; i <= position.line; i++) {
         const line = document.lineAt(i).text;
-
-        if (line.match(/\bclass\b/) && line.match(/:\s*(MonoBehaviour|NetworkBehaviour|ScriptableObject)/)) {
-            foundClass = true;
-        }
-
         for (const char of line) {
             if (char === '{') braceCount++;
             if (char === '}') braceCount--;

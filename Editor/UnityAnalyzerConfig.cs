@@ -78,6 +78,28 @@ public static class UnityAnalyzerConfig
         sb.AppendLine("trim_trailing_whitespace = true");
         sb.AppendLine("insert_final_newline = true");
         sb.AppendLine();
+        sb.AppendLine("# C# Formatting Rules");
+        sb.AppendLine("csharp_new_line_before_open_brace = all");
+        sb.AppendLine("csharp_new_line_before_else = true");
+        sb.AppendLine("csharp_new_line_before_catch = true");
+        sb.AppendLine("csharp_new_line_before_finally = true");
+        sb.AppendLine("csharp_new_line_before_members_in_object_initializer = true");
+        sb.AppendLine("csharp_new_line_before_members_in_anonymous_types = true");
+        sb.AppendLine();
+        sb.AppendLine("# C# Spacing Rules");
+        sb.AppendLine("csharp_space_after_cast = false");
+        sb.AppendLine("csharp_space_after_keywords_in_control_flow_statements = true");
+        sb.AppendLine("csharp_space_before_colon_in_inheritance_clause = true");
+        sb.AppendLine("csharp_space_after_colon_in_inheritance_clause = true");
+        sb.AppendLine("csharp_space_around_binary_operators = before_and_after");
+        sb.AppendLine("csharp_space_between_method_declaration_parameter_list_parentheses = false");
+        sb.AppendLine("csharp_space_between_method_call_parameter_list_parentheses = false");
+        sb.AppendLine();
+        sb.AppendLine("# C# Code Style Rules (Rider-like var preference)");
+        sb.AppendLine("csharp_style_var_for_built_in_types = true:suggestion");
+        sb.AppendLine("csharp_style_var_when_type_is_apparent = true:suggestion");
+        sb.AppendLine("csharp_style_var_elsewhere = true:suggestion");
+        sb.AppendLine();
 
         // Unity-specific suppressions
         sb.AppendLine("# Unity-specific diagnostic suppressions");
