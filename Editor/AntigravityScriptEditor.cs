@@ -26,13 +26,17 @@ public class AntigravityScriptEditor : IExternalCodeEditor
         // Windows
         "antigravity.exe",
         "antigravityide.exe",
+        "antigravity-ide.exe",
         // macOS (.app bundles and inner binaries)
         "antigravity.app",
         "antigravityide.app",
+        "antigravity-ide.app",
         "antigravity",
         "antigravityide",
+        "antigravity-ide",
         // Linux
         "antigravityide",
+        "antigravity-ide",
     };
 
     static readonly string DefaultArgument = "\"$(ProjectPath)\" -g \"$(File)\":$(Line):$(Column)";
@@ -89,33 +93,47 @@ public class AntigravityScriptEditor : IExternalCodeEditor
 
             if (Application.platform == RuntimePlatform.OSXEditor)
             {
-                // System Applications
-                paths.Add("/Applications/Antigravity.app");
+                // System Applications - PRIORITIZE Antigravity-IDE
+                paths.Add("/Applications/Antigravity-IDE.app");
                 paths.Add("/Applications/Antigravity IDE.app");
-                // User Applications
+                paths.Add("/Applications/Antigravity.app");
+
+                // User Applications - PRIORITIZE Antigravity-IDE
                 var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                paths.Add(Path.Combine(userProfile, "Applications", "Antigravity.app"));
+                paths.Add(Path.Combine(userProfile, "Applications", "Antigravity-IDE.app"));
                 paths.Add(Path.Combine(userProfile, "Applications", "Antigravity IDE.app"));
-                // Homebrew
+                paths.Add(Path.Combine(userProfile, "Applications", "Antigravity.app"));
+
+                // Homebrew / CLI - PRIORITIZE Antigravity-IDE
+                paths.Add("/opt/homebrew/bin/antigravity-ide");
                 paths.Add("/opt/homebrew/bin/antigravity");
+                paths.Add("/usr/local/bin/antigravity-ide");
                 paths.Add("/usr/local/bin/antigravity");
             }
             else if (Application.platform == RuntimePlatform.WindowsEditor)
             {
                 var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                paths.Add(Path.Combine(localAppData, "Programs", "Antigravity", "Antigravity.exe"));
                 paths.Add(Path.Combine(localAppData, "Programs", "Antigravity IDE", "Antigravity IDE.exe"));
+                paths.Add(Path.Combine(localAppData, "Programs", "Antigravity IDE", "antigravity-ide.exe"));
+                paths.Add(Path.Combine(localAppData, "Programs", "Antigravity", "Antigravity.exe"));
 
                 var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+                paths.Add(Path.Combine(programFiles, "Antigravity IDE", "Antigravity IDE.exe"));
+                paths.Add(Path.Combine(programFiles, "Antigravity IDE", "antigravity-ide.exe"));
                 paths.Add(Path.Combine(programFiles, "Antigravity", "Antigravity.exe"));
             }
             else if (Application.platform == RuntimePlatform.LinuxEditor)
             {
+                // PRIORITIZE Antigravity-IDE
+                paths.Add("/opt/Antigravity/antigravity-ide");
                 paths.Add("/opt/Antigravity/antigravity");
+                paths.Add("/usr/bin/antigravity-ide");
                 paths.Add("/usr/bin/antigravity");
+                paths.Add("/usr/local/bin/antigravity-ide");
                 paths.Add("/usr/local/bin/antigravity");
 
                 var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                paths.Add(Path.Combine(userProfile, ".local", "bin", "antigravity-ide"));
                 paths.Add(Path.Combine(userProfile, ".local", "bin", "antigravity"));
             }
 
@@ -206,7 +224,7 @@ public class AntigravityScriptEditor : IExternalCodeEditor
                 string executable = Path.Combine(macosDir, appName);
                 if (File.Exists(executable)) return executable;
 
-                foreach (var name in new[] { "Antigravity", "Antigravity IDE", "antigravity", "Electron" })
+                foreach (var name in new[] { "Antigravity-IDE", "antigravity-ide", "Antigravity", "Antigravity IDE", "antigravity", "Electron" })
                 {
                     executable = Path.Combine(macosDir, name);
                     if (File.Exists(executable)) return executable;
