@@ -6,6 +6,7 @@ import { registerCommands } from './commands/commands';
 // import { registerCsprojFixer } from './csproj/csprojFixer'; // Disabled: interferes with DotRush compilation
 import { ReferenceCodeLensProvider } from './csproj/codeLensProvider';
 import { UnityExplorerProvider } from './explorer/unityExplorer';
+import { InspectorValuesProvider } from './csproj/inspectorValuesProvider';
 
 const DOTRUSH_EXTENSION_ID = 'nromanov.dotrush';
 
@@ -30,6 +31,15 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.languages.registerCodeLensProvider(
             { language: 'csharp', scheme: 'file' },
             codeLensProvider
+        )
+    );
+
+    // Register JetBrains Rider-like Serialized Inspector Values Provider (Decorations & Hovers)
+    const inspectorValuesProvider = new InspectorValuesProvider(context);
+    context.subscriptions.push(
+        vscode.languages.registerHoverProvider(
+            { language: 'csharp', scheme: 'file' },
+            inspectorValuesProvider
         )
     );
 

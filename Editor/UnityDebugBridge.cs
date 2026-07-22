@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -227,6 +228,16 @@ public static class UnityDebugBridge
                 EditorApplication.delayCall += () => EditorApplication.isPlaying = false;
                 return "{\"type\":\"response\",\"status\":\"stopped\"}";
             }
+            else if (command.Contains("\"type\":\"get_serialized_values\""))
+            {
+                string classPath = ExtractJsonValue(command, "class_path");
+                string fieldsStr = ExtractJsonValue(command, "fields");
+                if (string.IsNullOrEmpty(classPath))
+                {
+                    return "{\"type\":\"error\",\"message\":\"missing class_path\"}";
+                }
+                return GetSerializedValuesJson(classPath, fieldsStr);
+            }
             else if (command.Contains("\"type\":\"find_usages\""))
             {
                 string classPath = ExtractJsonValue(command, "class_path");
@@ -246,36 +257,63 @@ public static class UnityDebugBridge
             }
             else if (command.Contains("\"type\":\"ping_asset\""))
             {
+                int? localId = ExtractJsonIntValue(command, "local_id");
                 string assetPath = ExtractJsonValue(command, "asset_path");
-                if (string.IsNullOrEmpty(assetPath))
+                if (!localId.HasValue && string.IsNullOrEmpty(assetPath))
                 {
-                    return "{\"type\":\"error\",\"message\":\"missing asset_path\"}";
+                    return "{\"type\":\"error\",\"message\":\"missing local_id and asset_path\"}";
                 }
 
                 EditorApplication.delayCall += () => {
-                    var obj = AssetDatabase.LoadMainAssetAtPath(assetPath);
+                    UnityEngine.Object obj = null;
+                    if (localId.HasValue)
+                    {
+                        obj = EditorUtility.InstanceIDToObject(localId.Value);
+                    }
+                    if (obj == null && !string.IsNullOrEmpty(assetPath))
+                    {
+                        obj = AssetDatabase.LoadMainAssetAtPath(assetPath);
+                    }
+
                     if (obj != null)
                     {
                         Selection.activeObject = obj;
                         EditorGUIUtility.PingObject(obj);
-                        EditorUtility.FocusProjectWindow();
+                        if (obj is GameObject || obj is Component)
+                        {
+                            EditorApplication.ExecuteMenuItem("Window/General/Hierarchy");
+                        }
+                        else
+                        {
+                            EditorUtility.FocusProjectWindow();
+                        }
                     }
                 };
                 return "{\"type\":\"response\",\"status\":\"pinged\"}";
             }
             else if (command.Contains("\"type\":\"open_asset\""))
             {
+                int? localId = ExtractJsonIntValue(command, "local_id");
                 string assetPath = ExtractJsonValue(command, "asset_path");
-                if (string.IsNullOrEmpty(assetPath))
+                if (!localId.HasValue && string.IsNullOrEmpty(assetPath))
                 {
-                    return "{\"type\":\"error\",\"message\":\"missing asset_path\"}";
+                    return "{\"type\":\"error\",\"message\":\"missing local_id and asset_path\"}";
                 }
 
                 EditorApplication.delayCall += () => {
-                    var obj = AssetDatabase.LoadMainAssetAtPath(assetPath);
+                    UnityEngine.Object obj = null;
+                    if (localId.HasValue)
+                    {
+                        obj = EditorUtility.InstanceIDToObject(localId.Value);
+                    }
+                    if (obj == null && !string.IsNullOrEmpty(assetPath))
+                    {
+                        obj = AssetDatabase.LoadMainAssetAtPath(assetPath);
+                    }
+
                     if (obj != null)
                     {
-                        if (assetPath.EndsWith(".unity", StringComparison.OrdinalIgnoreCase))
+                        if (assetPath != null && assetPath.EndsWith(".unity", StringComparison.OrdinalIgnoreCase))
                         {
                             if (UnityEditor.SceneManagement.EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
                             {
@@ -288,7 +326,14 @@ public static class UnityDebugBridge
                         }
                         Selection.activeObject = obj;
                         EditorGUIUtility.PingObject(obj);
-                        EditorUtility.FocusProjectWindow();
+                        if (obj is GameObject || obj is Component)
+                        {
+                            EditorApplication.ExecuteMenuItem("Window/General/Hierarchy");
+                        }
+                        else
+                        {
+                            EditorUtility.FocusProjectWindow();
+                        }
                     }
                 };
                 return "{\"type\":\"response\",\"status\":\"opened\"}";
@@ -309,6 +354,248 @@ public static class UnityDebugBridge
         string pattern = $"\"{key}\"\\s*:\\s*\"([^\"]+)\"";
         var match = System.Text.RegularExpressions.Regex.Match(json, pattern);
         return match.Success ? match.Groups[1].Value : null;
+    }
+
+    private static int? ExtractJsonIntValue(string json, string key)
+    {
+        string pattern = $"\"{key}\"\\s*:\\s*([0-9-]+)";
+        var match = System.Text.RegularExpressions.Regex.Match(json, pattern);
+        if (match.Success && int.TryParse(match.Groups[1].Value, out int result))
+        {
+            return result;
+        }
+        return null;
+    }
+
+    private static string GetSerializedValuesJson(string classPath, string fieldsStr)
+    {
+        string className = Path.GetFileNameWithoutExtension(classPath);
+        var fields = new List<string>();
+        if (!string.IsNullOrEmpty(fieldsStr))
+        {
+            fields.AddRange(fieldsStr.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        // Check if we are already on the main thread (avoids deadlocks)
+        // System.Threading.Thread.CurrentThread or using EditorApplication checks
+        // Since ProcessCommand runs on a ThreadPool thread (HandleClient), we usually synchronize.
+        // But if called directly from main thread (e.g., during tests), execute synchronously.
+        if (System.Threading.Thread.CurrentThread.ManagedThreadId == 1)
+        {
+            try
+            {
+                return ScrapeSerializedValues(classPath, className, fields);
+            }
+            catch (Exception ex)
+            {
+                return $"{{\"type\":\"error\",\"message\":\"{ex.Message.Replace("\"", "\\\"")}\"}}";
+            }
+        }
+
+        var resultJson = new StringBuilder();
+        var isDone = false;
+
+        EditorApplication.delayCall += () =>
+        {
+            try
+            {
+                resultJson.Append(ScrapeSerializedValues(classPath, className, fields));
+            }
+            catch (Exception ex)
+            {
+                resultJson.Append($"{{\"type\":\"error\",\"message\":\"{ex.Message.Replace("\"", "\\\"")}\"}}");
+            }
+            finally
+            {
+                isDone = true;
+            }
+        };
+
+        // Wait up to 2 seconds for main thread execution to finish
+        int elapsed = 0;
+        while (!isDone && elapsed < 2000)
+        {
+            Thread.Sleep(10);
+            elapsed += 10;
+        }
+
+        if (!isDone)
+        {
+            return "{\"type\":\"error\",\"message\":\"timeout waiting for Unity main thread\"}";
+        }
+
+        return resultJson.ToString();
+    }
+
+    private static string ScrapeSerializedValues(string classPath, string className, List<string> fields)
+    {
+        // Find type of class
+        Type type = null;
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            type = assembly.GetType(className);
+            if (type != null) break;
+        }
+
+        if (type == null)
+        {
+            // Fallback: try finding via TypeCache or script compilation
+            type = TypeCache.GetTypesDerivedFrom<MonoBehaviour>()
+                .FirstOrDefault(t => t.Name == className);
+        }
+
+        if (type == null)
+        {
+            return $"{{\"type\":\"serialized_values_result\",\"class_path\":\"{classPath}\",\"values\":{{}}}}";
+        }
+
+        // Scrape active scenes for GameObjects containing this MonoBehaviour
+        var resultsByField = new Dictionary<string, List<string>>();
+        foreach (var f in fields)
+        {
+            resultsByField[f] = new List<string>();
+        }
+
+        // Search active scenes (Primary Scope - loaded & active scenes)
+        int sceneCount = UnityEngine.SceneManagement.SceneManager.sceneCount;
+        for (int i = 0; i < sceneCount; i++)
+        {
+            var scene = UnityEngine.SceneManagement.SceneManager.GetSceneAt(i);
+            if (!scene.isLoaded) continue;
+
+            string scenePath = scene.path;
+            var rootGos = scene.GetRootGameObjects();
+            foreach (var rootGo in rootGos)
+            {
+                var components = rootGo.GetComponentsInChildren(type, true);
+                foreach (var comp in components)
+                {
+                    if (comp == null) continue;
+
+                    var so = new SerializedObject(comp);
+                    foreach (var fieldName in fields)
+                    {
+                        var prop = so.FindProperty(fieldName);
+                        if (prop == null) continue;
+
+                        string displayVal = GetPropertyValueString(prop);
+                        int instanceId = comp.gameObject.GetInstanceID();
+                        string containerName = comp.gameObject.name;
+
+                        string entryJson = $"{{\"container\":\"{containerName.Replace("\"", "\\\"")}\",\"value\":\"{displayVal.Replace("\"", "\\\"")}\",\"asset_path\":\"{scenePath.Replace("\\", "/")}\",\"local_id\":{instanceId},\"is_scene\":true}}";
+                        resultsByField[fieldName].Add(entryJson);
+                    }
+                }
+            }
+        }
+
+        // Secondary Scope (Async/Fast Prefabs and non-active scenes):
+        // To prevent editor freeze, do NOT synchronously scan/load every prefab in the project asset tree.
+        // Instead, only look for currently loaded/cached prefab assets or lightweight memory mappings.
+        // We can safely find prefabs that are currently selected or active, or loaded in memory,
+        // without loading thousands of assets from disk.
+        try
+        {
+            var loadedAssets = Resources.FindObjectsOfTypeAll(type);
+            foreach (var compObj in loadedAssets)
+            {
+                var comp = compObj as MonoBehaviour;
+                if (comp == null) continue;
+
+                // Only grab components that are on prefabs (i.e. not in a scene)
+                if (comp.gameObject.scene.name != null) continue;
+
+                string path = AssetDatabase.GetAssetPath(comp.gameObject);
+                if (string.IsNullOrEmpty(path)) continue;
+
+                var so = new SerializedObject(comp);
+                foreach (var fieldName in fields)
+                {
+                    var prop = so.FindProperty(fieldName);
+                    if (prop == null) continue;
+
+                    string displayVal = GetPropertyValueString(prop);
+                    int instanceId = comp.gameObject.GetInstanceID();
+                    string containerName = comp.gameObject.name;
+
+                    string entryJson = $"{{\"container\":\"{containerName.Replace("\"", "\\\"")}\",\"value\":\"{displayVal.Replace("\"", "\\\"")}\",\"asset_path\":\"{path.Replace("\\", "/")}\",\"local_id\":{instanceId},\"is_scene\":false}}";
+
+                    // Avoid duplicates
+                    if (!resultsByField[fieldName].Exists(x => x.Contains($"\"local_id\":{instanceId}")))
+                    {
+                        resultsByField[fieldName].Add(entryJson);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[Antigravity] Prefab values scraping warning: {ex.Message}");
+        }
+
+        // Build overall JSON output
+        var sb = new StringBuilder();
+        sb.Append($"{{\"type\":\"serialized_values_result\",\"class_path\":\"{classPath}\",\"values\":{{");
+        bool firstField = true;
+        foreach (var pair in resultsByField)
+        {
+            if (!firstField) sb.Append(",");
+            firstField = false;
+
+            sb.Append($"\"{pair.Key}\":[");
+            for (int j = 0; j < pair.Value.Count; j++)
+            {
+                sb.Append(pair.Value[j]);
+                if (j < pair.Value.Count - 1) sb.Append(",");
+            }
+            sb.Append("]");
+        }
+        sb.Append("}}");
+
+        return sb.ToString();
+    }
+
+    private static string GetPropertyValueString(SerializedProperty prop)
+    {
+        switch (prop.propertyType)
+        {
+            case SerializedPropertyType.Integer:
+                return prop.intValue.ToString();
+            case SerializedPropertyType.Boolean:
+                return prop.boolValue ? "true" : "false";
+            case SerializedPropertyType.Float:
+                return prop.floatValue.ToString("F2");
+            case SerializedPropertyType.String:
+                return prop.stringValue;
+            case SerializedPropertyType.Color:
+                return prop.colorValue.ToString();
+            case SerializedPropertyType.ObjectReference:
+                if (prop.objectReferenceValue != null)
+                {
+                    return prop.objectReferenceValue.name;
+                }
+                return "None";
+            case SerializedPropertyType.Vector2:
+                return prop.vector2Value.ToString();
+            case SerializedPropertyType.Vector3:
+                return prop.vector3Value.ToString();
+            case SerializedPropertyType.Rect:
+                return prop.rectValue.ToString();
+            case SerializedPropertyType.Char:
+                return ((char)prop.intValue).ToString();
+            case SerializedPropertyType.AnimationCurve:
+                return "Curve";
+            case SerializedPropertyType.Bounds:
+                return prop.boundsValue.ToString();
+            case SerializedPropertyType.Enum:
+                if (prop.enumValueIndex >= 0 && prop.enumValueIndex < prop.enumDisplayNames.Length)
+                {
+                    return prop.enumDisplayNames[prop.enumValueIndex];
+                }
+                return prop.enumValueIndex.ToString();
+            default:
+                return "...";
+        }
     }
 
     private static string FindUsagesOfClass(string classPath, out List<string> usagesList)

@@ -162,6 +162,29 @@ export function registerCommands(context: vscode.ExtensionContext) {
         })
     );
 
+    // Ping asset in Unity directly (interactive click from hover/decorations)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('antigravity-unity.pingAsset', async (arg: { assetPath?: string; localId?: number }) => {
+            const port = vscode.workspace.getConfiguration('antigravity').get<number>('debugPort', 56000);
+            try {
+                // Focus Unity Window first if we can resolve the pid
+                // Retrieve info first to get PID
+                const info = await sendTcpCommand({ type: 'info' }, port).catch(() => null);
+                if (info && typeof info.process_id === 'number') {
+                    focusUnityWindowByPid(info.process_id);
+                }
+
+                await sendTcpCommand({
+                    type: 'ping_asset',
+                    asset_path: arg.assetPath,
+                    local_id: arg.localId
+                }, port);
+            } catch (err: any) {
+                vscode.window.showErrorMessage(`Failed to ping asset in Unity: ${err.message}`);
+            }
+        })
+    );
+
     // Find Usages in Unity Assets (Rider-like Scene/Prefab/SO Reference Search)
     context.subscriptions.push(
         vscode.commands.registerCommand('antigravity-unity.findUsagesInAssets', async () => {
