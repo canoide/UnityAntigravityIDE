@@ -1,14 +1,59 @@
 import * as vscode from 'vscode';
 import * as net from 'net';
 import * as path from 'path';
+import { exec } from 'child_process';
+
+
+
+/**
+ * Restores and brings the Unity Editor OS window to the foreground using its exact process ID.
+ * On Windows: encodes the PowerShell script as Base64 UTF-16LE and uses -EncodedCommand to
+ * avoid all quoting/escaping issues with multi-line Add-Type scripts.
+ * On macOS: uses `open -a Unity`.
+ */
+function focusUnityWindowByPid(pid: number) {
+    if (process.platform !== 'win32') {
+        if (process.platform === 'darwin') {
+            exec('open -a Unity');
+        }
+        return;
+    }
+
+    // Multi-line PowerShell script using here-string syntax for Add-Type.
+    // Passed via -EncodedCommand (Base64 UTF-16LE) to avoid all quoting issues.
+    const script = `
+$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue
+if ($p -and $p.MainWindowHandle -ne 0) {
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class Win32 {
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+}
+"@
+    [Win32]::ShowWindow($p.MainWindowHandle, 9)
+    [Win32]::BringWindowToTop($p.MainWindowHandle)
+    [Win32]::SetForegroundWindow($p.MainWindowHandle)
+}
+`;
+
+    // Encode as UTF-16LE Base64 — required by PowerShell -EncodedCommand
+    const encoded = Buffer.from(script, 'utf16le').toString('base64');
+    exec(`powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`);
+}
 
 function sendTcpCommand(commandObj: any, port: number = 56000): Promise<any> {
     return new Promise((resolve, reject) => {
         const client = new net.Socket();
         let buffer = '';
+        let resolved = false;
 
-        // Timeout after 4 seconds
-        client.setTimeout(4000);
+        client.setTimeout(5000);
 
         client.connect(port, '127.0.0.1', () => {
             client.write(JSON.stringify(commandObj) + '\n');
@@ -16,33 +61,41 @@ function sendTcpCommand(commandObj: any, port: number = 56000): Promise<any> {
 
         client.on('data', (data) => {
             buffer += data.toString();
-            // Single-line response ending in newline
-            if (buffer.endsWith('\n') || buffer.endsWith('\r')) {
-                client.destroy();
+            const lines = buffer.split(/\r?\n/);
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed) {
+                    try {
+                        const response = JSON.parse(trimmed);
+                        resolved = true;
+                        client.destroy();
+                        resolve(response);
+                        return;
+                    } catch {
+                        // Continue accumulating if chunk was partial
+                    }
+                }
             }
         });
 
         client.on('close', () => {
-            try {
-                if (buffer) {
-                    const response = JSON.parse(buffer.trim());
-                    resolve(response);
-                } else {
-                    reject(new Error('Empty response received from Unity Editor.'));
-                }
-            } catch (err) {
-                reject(err);
+            if (!resolved) {
+                reject(new Error('Connection closed before receiving response from Unity Editor.'));
             }
         });
 
         client.on('error', (err) => {
-            client.destroy();
-            reject(err);
+            if (!resolved) {
+                client.destroy();
+                reject(err);
+            }
         });
 
         client.on('timeout', () => {
-            client.destroy();
-            reject(new Error('Connection timed out. Ensure Unity Editor is running with Antigravity.'));
+            if (!resolved) {
+                client.destroy();
+                reject(new Error('Connection timed out. Ensure Unity Editor is running with Antigravity.'));
+            }
         });
     });
 }
@@ -137,12 +190,21 @@ export function registerCommands(context: vscode.ExtensionContext) {
                 cancellable: false
             }, async () => {
                 try {
+                    // Resolve the exact PID of the connected Unity instance before searching
+                    // (PID will be returned in the find_usages response, no extra round-trip needed)
+                    let unityPid: number | null = null;
+
                     const response = await sendTcpCommand({
                         type: 'find_usages',
                         class_path: relativePath
                     }, port);
 
                     if (response.type === 'usages_result') {
+                        // Extract PID from the response (included by Unity bridge to avoid extra round-trip)
+                        if (typeof response.process_id === 'number') {
+                            unityPid = response.process_id as number;
+                        }
+
                         const usages = response.usages as string[];
                         if (usages.length === 0) {
                             vscode.window.showInformationMessage(`No asset usages found in the project for ${path.basename(fullPath)}.`);
@@ -164,15 +226,20 @@ export function registerCommands(context: vscode.ExtensionContext) {
                         });
 
                         const selected = await vscode.window.showQuickPick(items, {
-                            placeHolder: `Select asset to highlight in Unity Editor (${usages.length} found)`
+                            placeHolder: `Select asset usage (${usages.length} found)`
                         });
 
                         if (selected) {
-                            // Send command to Unity to ping and select the asset
+                            // Focus the exact connected Unity instance by PID before sending the command
+                            if (unityPid !== null) {
+                                focusUnityWindowByPid(unityPid);
+                            }
+
                             await sendTcpCommand({
                                 type: 'ping_asset',
                                 asset_path: selected.rawPath
                             }, port);
+
                             vscode.window.showInformationMessage(`Highlighted and selected ${path.basename(selected.rawPath)} in Unity!`);
                         }
                     } else if (response.type === 'error') {

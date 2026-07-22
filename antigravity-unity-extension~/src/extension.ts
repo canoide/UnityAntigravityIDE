@@ -5,6 +5,7 @@ import { registerCompletionProviders } from './completion/unityCompletions';
 import { registerCommands } from './commands/commands';
 // import { registerCsprojFixer } from './csproj/csprojFixer'; // Disabled: interferes with DotRush compilation
 import { ReferenceCodeLensProvider } from './csproj/codeLensProvider';
+import { UnityExplorerProvider } from './explorer/unityExplorer';
 
 const DOTRUSH_EXTENSION_ID = 'nromanov.dotrush';
 
@@ -31,6 +32,31 @@ export async function activate(context: vscode.ExtensionContext) {
             codeLensProvider
         )
     );
+
+    // Register Unity Explorer TreeView
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceRoot) {
+        const unityExplorer = new UnityExplorerProvider(workspaceRoot);
+
+        context.subscriptions.push(
+            vscode.window.registerTreeDataProvider('antigravity-unity.unityExplorer', unityExplorer)
+        );
+
+        // Refresh command
+        context.subscriptions.push(
+            vscode.commands.registerCommand('antigravity-unity.refreshUnityExplorer', () => {
+                unityExplorer.refresh();
+            })
+        );
+
+        // Auto-refresh when manifest.json changes (package additions/removals)
+        const manifestPath = path.join(workspaceRoot, 'Packages', 'manifest.json');
+        const manifestWatcher = vscode.workspace.createFileSystemWatcher(manifestPath);
+        manifestWatcher.onDidChange(() => unityExplorer.refresh());
+        manifestWatcher.onDidCreate(() => unityExplorer.refresh());
+        manifestWatcher.onDidDelete(() => unityExplorer.refresh());
+        context.subscriptions.push(manifestWatcher);
+    }
 
     // Watch for .csproj changes from Unity and auto-restart DotRush
     setupCsprojChangeWatcher(context);

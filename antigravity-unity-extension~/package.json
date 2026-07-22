@@ -66,13 +66,43 @@
                 "command": "antigravity-unity.findUsagesInAssets",
                 "title": "Find Usages in Unity Assets",
                 "category": "Antigravity"
+            },
+            {
+                "command": "antigravity-unity.refreshUnityExplorer",
+                "title": "Refresh Unity Explorer",
+                "category": "Antigravity",
+                "icon": "$(refresh)"
             }
         ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "antigravity-unity-explorer",
+                    "title": "Unity Explorer",
+                    "icon": "assets/unity-explorer-icon.svg"
+                }
+            ]
+        },
+        "views": {
+            "antigravity-unity-explorer": [
+                {
+                    "id": "antigravity-unity.unityExplorer",
+                    "name": "Unity Explorer"
+                }
+            ]
+        },
         "menus": {
             "editor/context": [
                 {
                     "when": "resourceLangId == csharp",
                     "command": "antigravity-unity.findUsagesInAssets",
+                    "group": "navigation"
+                }
+            ],
+            "view/title": [
+                {
+                    "command": "antigravity-unity.refreshUnityExplorer",
+                    "when": "view == antigravity-unity.unityExplorer",
                     "group": "navigation"
                 }
             ]

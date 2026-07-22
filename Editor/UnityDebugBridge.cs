@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -170,25 +171,13 @@ public static class UnityDebugBridge
             using (var reader = new StreamReader(stream, Encoding.UTF8))
             using (var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true })
             {
-                // Respond with debug info
-                var debugInfo = GetDebugInfoJson();
-                writer.WriteLine(debugInfo);
-
-                // Keep connection alive for debug commands
-                while (client.Connected && _isRunning)
+                string command;
+                while (_isRunning && (command = reader.ReadLine()) != null)
                 {
-                    if (stream.DataAvailable)
-                    {
-                        string command = reader.ReadLine();
-                        if (string.IsNullOrEmpty(command)) break;
+                    if (string.IsNullOrWhiteSpace(command)) continue;
 
-                        string response = ProcessCommand(command);
-                        writer.WriteLine(response);
-                    }
-                    else
-                    {
-                        Thread.Sleep(50);
-                    }
+                    string response = ProcessCommand(command);
+                    writer.WriteLine(response);
                 }
             }
         }
@@ -245,7 +234,15 @@ public static class UnityDebugBridge
                 {
                     return "{\"type\":\"error\",\"message\":\"missing class_path\"}";
                 }
-                return FindUsagesOfClass(classPath);
+                string className = Path.GetFileNameWithoutExtension(classPath);
+                string jsonResult = FindUsagesOfClass(classPath, out List<string> usagesList);
+
+                // Schedule opening the AssetUsagesWindow in Unity on the main thread
+                EditorApplication.delayCall += () => {
+                    AssetUsagesWindow.ShowWindow(className, usagesList);
+                };
+
+                return jsonResult;
             }
             else if (command.Contains("\"type\":\"ping_asset\""))
             {
@@ -255,17 +252,46 @@ public static class UnityDebugBridge
                     return "{\"type\":\"error\",\"message\":\"missing asset_path\"}";
                 }
 
-                // Focus/Ping the asset in Unity (must be done on the main thread via delayCall)
                 EditorApplication.delayCall += () => {
                     var obj = AssetDatabase.LoadMainAssetAtPath(assetPath);
                     if (obj != null)
                     {
                         Selection.activeObject = obj;
                         EditorGUIUtility.PingObject(obj);
-                        EditorApplication.ExecuteMenuItem("Window/General/Project");
+                        EditorUtility.FocusProjectWindow();
                     }
                 };
                 return "{\"type\":\"response\",\"status\":\"pinged\"}";
+            }
+            else if (command.Contains("\"type\":\"open_asset\""))
+            {
+                string assetPath = ExtractJsonValue(command, "asset_path");
+                if (string.IsNullOrEmpty(assetPath))
+                {
+                    return "{\"type\":\"error\",\"message\":\"missing asset_path\"}";
+                }
+
+                EditorApplication.delayCall += () => {
+                    var obj = AssetDatabase.LoadMainAssetAtPath(assetPath);
+                    if (obj != null)
+                    {
+                        if (assetPath.EndsWith(".unity", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (UnityEditor.SceneManagement.EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                            {
+                                UnityEditor.SceneManagement.EditorSceneManager.OpenScene(assetPath);
+                            }
+                        }
+                        else
+                        {
+                            AssetDatabase.OpenAsset(obj);
+                        }
+                        Selection.activeObject = obj;
+                        EditorGUIUtility.PingObject(obj);
+                        EditorUtility.FocusProjectWindow();
+                    }
+                };
+                return "{\"type\":\"response\",\"status\":\"opened\"}";
             }
             else
             {
@@ -285,14 +311,14 @@ public static class UnityDebugBridge
         return match.Success ? match.Groups[1].Value : null;
     }
 
-    private static string FindUsagesOfClass(string classPath)
+    private static string FindUsagesOfClass(string classPath, out List<string> usagesList)
     {
+        usagesList = new List<string>();
         try
         {
             string guidValue = null;
             string metaPath = classPath + ".meta";
 
-            // Prioritize reading .meta file directly (100% thread-safe and extremely fast on background threads)
             if (File.Exists(metaPath))
             {
                 foreach (var line in File.ReadAllLines(metaPath))
@@ -305,20 +331,12 @@ public static class UnityDebugBridge
                 }
             }
 
-            // Fallback to AssetDatabase ONLY if we can determine we are on the main thread,
-            // but since meta files are guaranteed to exist, this is almost never reached.
-            if (string.IsNullOrEmpty(guidValue))
-            {
-                // In background threads, AssetDatabase throws thread violations, so we ignore it.
-                // Every Unity script is guaranteed to have a .meta file next to it.
-            }
-
             if (string.IsNullOrEmpty(guidValue))
             {
                 return "{\"type\":\"usages_result\",\"usages\":[]}";
             }
 
-            return ScanProjectForGuid(guidValue);
+            return ScanProjectForGuid(guidValue, out usagesList);
         }
         catch (Exception ex)
         {
@@ -326,9 +344,9 @@ public static class UnityDebugBridge
         }
     }
 
-    private static string ScanProjectForGuid(string guid)
+    private static string ScanProjectForGuid(string guid, out List<string> usages)
     {
-        var usages = new List<string>();
+        usages = new List<string>();
         string projectDir = Directory.GetCurrentDirectory();
         string assetsDir = Path.Combine(projectDir, "Assets");
 
@@ -337,7 +355,7 @@ public static class UnityDebugBridge
             return "{\"type\":\"usages_result\",\"usages\":[]}";
         }
 
-        string[] extensions = { "*.prefab", "*.unity", "*.asset" };
+        string[] extensions = { "*.prefab", "*.unity", "*.asset", "*.controller", "*.anim", "*.overrideController", "*.mat", "*.playable" };
         var candidateFiles = new List<string>();
 
         foreach (var ext in extensions)
@@ -369,7 +387,10 @@ public static class UnityDebugBridge
         }
 
         var sb = new StringBuilder();
-        sb.Append("{\"type\":\"usages_result\",\"usages\":[");
+        int pid = System.Diagnostics.Process.GetCurrentProcess().Id;
+        sb.Append("{\"type\":\"usages_result\",\"process_id\":");
+        sb.Append(pid);
+        sb.Append(",\"usages\":[");
         for (int i = 0; i < usages.Count; i++)
         {
             sb.Append($"\"{usages[i].Replace("\\", "/")}\"");

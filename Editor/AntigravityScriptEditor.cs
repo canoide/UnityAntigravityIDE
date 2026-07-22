@@ -10,7 +10,7 @@ using UnityEngine;
 [InitializeOnLoad]
 public class AntigravityScriptEditor : IExternalCodeEditor
 {
-    const string EditorName = "Antigravity";
+    const string EditorName = "Antigravity IDE";
     const string PrefKey_DebugPort = "Antigravity_DebugPort";
     const string PrefKey_ReuseWindow = "Antigravity_ReuseWindow";
     const string PrefKey_GenerateLaunchJson = "Antigravity_GenerateLaunchJson";
@@ -24,14 +24,11 @@ public class AntigravityScriptEditor : IExternalCodeEditor
     static readonly string[] k_SupportedFileNames =
     {
         // Windows
-        "antigravity.exe",
         "antigravityide.exe",
         "antigravity-ide.exe",
         // macOS (.app bundles and inner binaries)
-        "antigravity.app",
         "antigravityide.app",
         "antigravity-ide.app",
-        "antigravity",
         "antigravityide",
         "antigravity-ide",
         // Linux
@@ -96,45 +93,35 @@ public class AntigravityScriptEditor : IExternalCodeEditor
                 // System Applications - PRIORITIZE Antigravity-IDE
                 paths.Add("/Applications/Antigravity-IDE.app");
                 paths.Add("/Applications/Antigravity IDE.app");
-                paths.Add("/Applications/Antigravity.app");
 
                 // User Applications - PRIORITIZE Antigravity-IDE
                 var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
                 paths.Add(Path.Combine(userProfile, "Applications", "Antigravity-IDE.app"));
                 paths.Add(Path.Combine(userProfile, "Applications", "Antigravity IDE.app"));
-                paths.Add(Path.Combine(userProfile, "Applications", "Antigravity.app"));
 
                 // Homebrew / CLI - PRIORITIZE Antigravity-IDE
                 paths.Add("/opt/homebrew/bin/antigravity-ide");
-                paths.Add("/opt/homebrew/bin/antigravity");
                 paths.Add("/usr/local/bin/antigravity-ide");
-                paths.Add("/usr/local/bin/antigravity");
             }
             else if (Application.platform == RuntimePlatform.WindowsEditor)
             {
                 var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 paths.Add(Path.Combine(localAppData, "Programs", "Antigravity IDE", "Antigravity IDE.exe"));
                 paths.Add(Path.Combine(localAppData, "Programs", "Antigravity IDE", "antigravity-ide.exe"));
-                paths.Add(Path.Combine(localAppData, "Programs", "Antigravity", "Antigravity.exe"));
 
                 var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
                 paths.Add(Path.Combine(programFiles, "Antigravity IDE", "Antigravity IDE.exe"));
                 paths.Add(Path.Combine(programFiles, "Antigravity IDE", "antigravity-ide.exe"));
-                paths.Add(Path.Combine(programFiles, "Antigravity", "Antigravity.exe"));
             }
             else if (Application.platform == RuntimePlatform.LinuxEditor)
             {
                 // PRIORITIZE Antigravity-IDE
                 paths.Add("/opt/Antigravity/antigravity-ide");
-                paths.Add("/opt/Antigravity/antigravity");
                 paths.Add("/usr/bin/antigravity-ide");
-                paths.Add("/usr/bin/antigravity");
                 paths.Add("/usr/local/bin/antigravity-ide");
-                paths.Add("/usr/local/bin/antigravity");
 
                 var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
                 paths.Add(Path.Combine(userProfile, ".local", "bin", "antigravity-ide"));
-                paths.Add(Path.Combine(userProfile, ".local", "bin", "antigravity"));
             }
 
             return paths.ToArray();
@@ -199,9 +186,10 @@ public class AntigravityScriptEditor : IExternalCodeEditor
         if (k_SupportedFileNames.Contains(normalized))
             return true;
 
-        // On macOS, the inner binary might be "Electron" inside "Antigravity.app"
-        // Check if any parent directory is an Antigravity .app bundle
-        if (path.IndexOf("Antigravity", StringComparison.OrdinalIgnoreCase) >= 0)
+        // On macOS, the inner binary might be "Electron" inside "Antigravity IDE.app"
+        // Check if any parent directory is an Antigravity IDE .app bundle
+        if (path.IndexOf("Antigravity IDE", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("Antigravity-IDE", StringComparison.OrdinalIgnoreCase) >= 0)
             return true;
 
         return false;
