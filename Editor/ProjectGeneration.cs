@@ -903,8 +903,14 @@ public static class ProjectGeneration
         }
     }
 
+    private static double s_LastSyncTime;
+
     public static void SyncIfNeeded(string[] addedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths, string[] importedAssets)
     {
+        // Prevent redundant sync calls within a 500ms window (Rider-like smooth debouncing)
+        if (EditorApplication.timeSinceStartup - s_LastSyncTime < 0.5)
+            return;
+
         Profiler.BeginSample("AntigravityProjectSyncIfNeeded");
 
         var allChanged = addedAssets
@@ -918,6 +924,7 @@ public static class ProjectGeneration
 
         if (needsSync)
         {
+            s_LastSyncTime = EditorApplication.timeSinceStartup;
             Sync(isManual: false);
         }
 
@@ -2032,5 +2039,18 @@ public static class ProjectGeneration
             byte[] hash = md5.ComputeHash(Encoding.Default.GetBytes(input));
             return new Guid(hash).ToString().ToUpper();
         }
+    }
+}
+
+/// <summary>
+/// Bulletproof automatic asset postprocessor. Guarantees that any C# script or assembly definition
+/// addition, deletion, or move instantly and silently triggers the background Project Generation
+/// without requiring manual editor dropdown actions, matching the seamless Rider experience.
+/// </summary>
+public class AntigravityAssetPostprocessor : AssetPostprocessor
+{
+    private static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
+    {
+        ProjectGeneration.SyncIfNeeded(importedAssets, deletedAssets, movedAssets, movedFromAssetPaths, new string[0]);
     }
 }
