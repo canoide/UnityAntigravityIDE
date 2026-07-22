@@ -193,7 +193,16 @@
                     "description": "The TCP port used to communicate with the running Unity Editor process."
                 }
             }
-        }
+        },
+        "debuggers": [
+            {
+                "type": "unity",
+                "label": "Unity Debugger",
+                "languages": [
+                    "csharp"
+                ]
+            }
+        ]
     },
     "scripts": {
         "compile": "tsc -p ./",

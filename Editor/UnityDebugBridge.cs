@@ -26,6 +26,12 @@ public static class UnityDebugBridge
 
     static UnityDebugBridge()
     {
+            // FORCE auto-start to be true first if not set in EditorPrefs to guarantee it launches on first run
+            if (!EditorPrefs.HasKey(PrefKey_AutoStartBridge))
+            {
+                EditorPrefs.SetBool(PrefKey_AutoStartBridge, true);
+            }
+
         // Default to auto-starting the debug bridge so it works seamlessly out-of-the-box
         if (EditorPrefs.GetBool(PrefKey_AutoStartBridge, true))
         {
@@ -107,6 +113,22 @@ public static class UnityDebugBridge
     {
         return !_isRunning;
     }
+
+        [MenuItem("Antigravity/Auto-Start Debug Bridge Toggle", false, 150)]
+        public static void ToggleAutoStart()
+        {
+            bool current = EditorPrefs.GetBool(PrefKey_AutoStartBridge, true);
+            EditorPrefs.SetBool(PrefKey_AutoStartBridge, !current);
+            Debug.Log($"[Antigravity] Auto-start Debug Bridge is now set to: {!current}");
+        }
+
+        [MenuItem("Antigravity/Auto-Start Debug Bridge Toggle", true)]
+        private static bool ValidateToggleAutoStart()
+        {
+            bool current = EditorPrefs.GetBool(PrefKey_AutoStartBridge, true);
+            Menu.SetChecked("Antigravity/Auto-Start Debug Bridge Toggle", current);
+            return true;
+        }
 
     private static void ListenForConnections()
     {
