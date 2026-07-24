@@ -2,6 +2,9 @@
 
 All notable changes to the Antigravity Unity extension will be documented in this file.
 
+## v1.2.53
+- feat: Unity Explorer locate active script, expand/collapse controls, attribute completions, formatOnType, and Unity 6 EntityId fixes
+
 ## v1.2.52
 - fix: improve ProjectGeneration.cs reliability
 

@@ -52,27 +52,50 @@ public static class UnityDebugBridge
             if (_isRunning) return;
 
             int port = EditorPrefs.GetInt(PrefKey_DebugPort, DefaultPort);
+            int attempts = 5;
+            SocketException lastEx = null;
 
-            try
+            while (attempts > 0)
             {
-                _listener = new TcpListener(IPAddress.Loopback, port);
-                _listener.Start();
-                _isRunning = true;
-
-                _listenerThread = new Thread(ListenForConnections)
+                try
                 {
-                    IsBackground = true,
-                    Name = "AntigravityDebugBridge"
-                };
-                _listenerThread.Start();
+                    _listener = new TcpListener(IPAddress.Loopback, port);
+                    _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                    _listener.Start();
+                    _isRunning = true;
 
-                Debug.Log($"[Antigravity] Debug bridge started on port {port}");
-                GenerateDebugInfo(port);
+                    _listenerThread = new Thread(ListenForConnections)
+                    {
+                        IsBackground = true,
+                        Name = "AntigravityDebugBridge"
+                    };
+                    _listenerThread.Start();
+
+                    Debug.Log($"[Antigravity] Debug bridge started on port {port}");
+                    GenerateDebugInfo(port);
+                    return;
+                }
+                catch (SocketException ex)
+                {
+                    lastEx = ex;
+                    try
+                    {
+                        _listener?.Stop();
+                    }
+                    catch {}
+                    _listener = null;
+                    _isRunning = false;
+                    attempts--;
+                    if (attempts > 0)
+                    {
+                        Thread.Sleep(200);
+                    }
+                }
             }
-            catch (SocketException ex)
+
+            if (lastEx != null)
             {
-                Debug.LogError($"[Antigravity] Failed to start debug bridge on port {port}: {ex.Message}");
-                _isRunning = false;
+                Debug.LogError($"[Antigravity] Failed to start debug bridge on port {port}: {lastEx.Message}");
             }
         }
     }
@@ -88,8 +111,12 @@ public static class UnityDebugBridge
 
             try
             {
-                _listener?.Stop();
-                _listenerThread?.Join(1000);
+                if (_listener != null)
+                {
+                    _listener.Server?.Close();
+                    _listener.Stop();
+                }
+                _listenerThread?.Join(500);
             }
             catch (Exception)
             {
@@ -268,7 +295,11 @@ public static class UnityDebugBridge
                     UnityEngine.Object obj = null;
                     if (localId.HasValue)
                     {
+#if UNITY_6000_0_OR_NEWER
+                        obj = EditorUtility.EntityIdToObject(localId.Value);
+#else
                         obj = EditorUtility.InstanceIDToObject(localId.Value);
+#endif
                     }
                     if (obj == null && !string.IsNullOrEmpty(assetPath))
                     {
@@ -304,7 +335,11 @@ public static class UnityDebugBridge
                     UnityEngine.Object obj = null;
                     if (localId.HasValue)
                     {
+#if UNITY_6000_0_OR_NEWER
+                        obj = EditorUtility.EntityIdToObject(localId.Value);
+#else
                         obj = EditorUtility.InstanceIDToObject(localId.Value);
+#endif
                     }
                     if (obj == null && !string.IsNullOrEmpty(assetPath))
                     {
@@ -479,7 +514,11 @@ public static class UnityDebugBridge
                         if (prop == null) continue;
 
                         string displayVal = GetPropertyValueString(prop);
+#if UNITY_6000_0_OR_NEWER
+                        var instanceId = comp.gameObject.GetEntityId();
+#else
                         int instanceId = comp.gameObject.GetInstanceID();
+#endif
                         string containerName = comp.gameObject.name;
 
                         string entryJson = $"{{\"container\":\"{containerName.Replace("\"", "\\\"")}\",\"value\":\"{displayVal.Replace("\"", "\\\"")}\",\"asset_path\":\"{scenePath.Replace("\\", "/")}\",\"local_id\":{instanceId},\"is_scene\":true}}";
@@ -515,7 +554,11 @@ public static class UnityDebugBridge
                     if (prop == null) continue;
 
                     string displayVal = GetPropertyValueString(prop);
+#if UNITY_6000_0_OR_NEWER
+                    var instanceId = comp.gameObject.GetEntityId();
+#else
                     int instanceId = comp.gameObject.GetInstanceID();
+#endif
                     string containerName = comp.gameObject.name;
 
                     string entryJson = $"{{\"container\":\"{containerName.Replace("\"", "\\\"")}\",\"value\":\"{displayVal.Replace("\"", "\\\"")}\",\"asset_path\":\"{path.Replace("\\", "/")}\",\"local_id\":{instanceId},\"is_scene\":false}}";
@@ -581,7 +624,7 @@ public static class UnityDebugBridge
                 return prop.vector3Value.ToString();
             case SerializedPropertyType.Rect:
                 return prop.rectValue.ToString();
-            case SerializedPropertyType.Char:
+            case SerializedPropertyType.Character:
                 return ((char)prop.intValue).ToString();
             case SerializedPropertyType.AnimationCurve:
                 return "Curve";

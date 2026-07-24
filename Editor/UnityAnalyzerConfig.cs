@@ -101,10 +101,14 @@ public static class UnityAnalyzerConfig
         sb.AppendLine("csharp_style_var_elsewhere = true:suggestion");
         sb.AppendLine();
 
-        // Unity-specific suppressions
-        sb.AppendLine("# Unity-specific diagnostic suppressions");
-        sb.AppendLine("# IDE0051: Remove unused private members — false positive for Unity messages");
-        sb.AppendLine("dotnet_diagnostic.IDE0051.severity = none");
+        // Unused symbols fading rules (Rider-like graying out for unused variables/members)
+        sb.AppendLine("# Unused symbols fading rules (Rider-like dimmed text for unused variables, fields, and parameters)");
+        sb.AppendLine("dotnet_diagnostic.CS0168.severity = warning");
+        sb.AppendLine("dotnet_diagnostic.CS0219.severity = warning");
+        sb.AppendLine("dotnet_diagnostic.CS0169.severity = warning");
+        sb.AppendLine("dotnet_diagnostic.IDE0051.severity = warning");
+        sb.AppendLine("dotnet_diagnostic.IDE0052.severity = warning");
+        sb.AppendLine("dotnet_diagnostic.IDE0060.severity = warning");
         sb.AppendLine();
         sb.AppendLine("# IDE0044: Add readonly modifier — false positive for serialized fields");
         sb.AppendLine("dotnet_diagnostic.IDE0044.severity = none");

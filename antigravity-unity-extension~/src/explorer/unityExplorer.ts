@@ -144,6 +144,159 @@ export class UnityExplorerProvider implements vscode.TreeDataProvider<UnityExplo
         }
     }
 
+    getParent(element: UnityExplorerItem): vscode.ProviderResult<UnityExplorerItem> {
+        if (!element || !element.fsPath) {
+            return undefined;
+        }
+
+        const normPath = path.normalize(element.fsPath);
+        const assetsPath = path.normalize(path.join(this.workspaceRoot, 'Assets'));
+        const packagesPath = path.normalize(path.join(this.workspaceRoot, 'Packages'));
+        const cacheDir = path.normalize(path.join(this.workspaceRoot, 'Library', 'PackageCache'));
+
+        if (normPath === assetsPath || normPath === packagesPath) {
+            return undefined;
+        }
+
+        const parentDir = path.dirname(normPath);
+
+        if (normPath.startsWith(assetsPath + path.sep)) {
+            if (parentDir === assetsPath) {
+                return new UnityExplorerItem(
+                    'Assets',
+                    assetsPath,
+                    'root-assets',
+                    vscode.TreeItemCollapsibleState.Expanded
+                );
+            }
+            return new UnityExplorerItem(
+                path.basename(parentDir),
+                parentDir,
+                'directory',
+                vscode.TreeItemCollapsibleState.Expanded
+            );
+        }
+
+        if (normPath.startsWith(packagesPath + path.sep)) {
+            if (parentDir === packagesPath) {
+                return new UnityExplorerItem(
+                    'Packages',
+                    packagesPath,
+                    'root-packages',
+                    vscode.TreeItemCollapsibleState.Collapsed
+                );
+            }
+            return new UnityExplorerItem(
+                path.basename(parentDir),
+                parentDir,
+                'directory',
+                vscode.TreeItemCollapsibleState.Collapsed
+            );
+        }
+
+        if (normPath.startsWith(cacheDir + path.sep)) {
+            if (parentDir === cacheDir) {
+                return new UnityExplorerItem(
+                    'Read Only',
+                    cacheDir,
+                    'readonly-group',
+                    vscode.TreeItemCollapsibleState.Collapsed
+                );
+            }
+            return new UnityExplorerItem(
+                path.basename(parentDir),
+                parentDir,
+                'readonly-directory',
+                vscode.TreeItemCollapsibleState.Collapsed
+            );
+        }
+
+        return undefined;
+    }
+
+    findItemForPath(targetFsPath: string): UnityExplorerItem | undefined {
+        if (!targetFsPath || !fs.existsSync(targetFsPath)) {
+            return undefined;
+        }
+
+        const normTarget = path.normalize(targetFsPath);
+        const assetsPath = path.normalize(path.join(this.workspaceRoot, 'Assets'));
+        const packagesPath = path.normalize(path.join(this.workspaceRoot, 'Packages'));
+        const cacheDir = path.normalize(path.join(this.workspaceRoot, 'Library', 'PackageCache'));
+
+        let isDirectory = false;
+        try {
+            isDirectory = fs.statSync(normTarget).isDirectory();
+        } catch {
+            return undefined;
+        }
+
+        if (normTarget === assetsPath) {
+            return new UnityExplorerItem('Assets', assetsPath, 'root-assets', vscode.TreeItemCollapsibleState.Expanded);
+        }
+
+        if (normTarget === packagesPath) {
+            return new UnityExplorerItem('Packages', packagesPath, 'root-packages', vscode.TreeItemCollapsibleState.Collapsed);
+        }
+
+        if (normTarget.startsWith(assetsPath + path.sep)) {
+            const kind: NodeKind = isDirectory ? 'directory' : 'file';
+            const state = isDirectory ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None;
+            return new UnityExplorerItem(path.basename(normTarget), normTarget, kind, state);
+        }
+
+        if (normTarget.startsWith(packagesPath + path.sep)) {
+            const kind: NodeKind = isDirectory ? 'directory' : 'file';
+            const state = isDirectory ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None;
+            return new UnityExplorerItem(path.basename(normTarget), normTarget, kind, state);
+        }
+
+        if (normTarget.startsWith(cacheDir + path.sep)) {
+            const kind: NodeKind = isDirectory ? 'readonly-directory' : 'readonly-file';
+            const state = isDirectory ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None;
+            return new UnityExplorerItem(path.basename(normTarget), normTarget, kind, state);
+        }
+
+        return undefined;
+    }
+
+    async expandAll(treeView: vscode.TreeView<UnityExplorerItem>): Promise<void> {
+        const expandItem = async (item: UnityExplorerItem) => {
+            if (
+                item.kind === 'directory' ||
+                item.kind === 'readonly-directory' ||
+                item.kind === 'root-assets' ||
+                item.kind === 'root-packages' ||
+                item.kind === 'readonly-group'
+            ) {
+                try {
+                    await treeView.reveal(item, { expand: true, select: false, focus: false });
+                    const children = await this.getChildren(item);
+                    if (children) {
+                        for (const child of children) {
+                            if (
+                                child.kind === 'directory' ||
+                                child.kind === 'readonly-directory' ||
+                                child.kind === 'root-assets' ||
+                                child.kind === 'root-packages' ||
+                                child.kind === 'readonly-group'
+                            ) {
+                                await expandItem(child);
+                            }
+                        }
+                    }
+                } catch { }
+            }
+        };
+
+        const roots = await this.getChildren();
+        if (roots) {
+            for (const root of roots) {
+                await expandItem(root);
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Root
     // -------------------------------------------------------------------------

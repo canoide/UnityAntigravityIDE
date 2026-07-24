@@ -2,7 +2,7 @@
     "name": "antigravity-unity",
     "displayName": "Antigravity Unity",
     "description": "C# IntelliSense, debugging, and Unity integration without Microsoft's locked extensions. Powered by DotRush + Roslyn.",
-    "version": "1.2.52",
+    "version": "1.2.53",
     "icon": "assets/icon.png",
     "publisher": "antigravity-unity",
     "license": "MIT",
@@ -72,6 +72,18 @@
                 "title": "Refresh Unity Explorer",
                 "category": "Antigravity",
                 "icon": "$(refresh)"
+            },
+            {
+                "command": "antigravity-unity.revealActiveFileInUnityExplorer",
+                "title": "Show Current Script in Unity Explorer",
+                "category": "Antigravity",
+                "icon": "$(target)"
+            },
+            {
+                "command": "antigravity-unity.expandAllUnityExplorer",
+                "title": "Expand All Folders",
+                "category": "Antigravity",
+                "icon": "$(expand-all)"
             }
         ],
         "viewsContainers": {
@@ -101,9 +113,19 @@
             ],
             "view/title": [
                 {
+                    "command": "antigravity-unity.revealActiveFileInUnityExplorer",
+                    "when": "view == antigravity-unity.unityExplorer",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "antigravity-unity.expandAllUnityExplorer",
+                    "when": "view == antigravity-unity.unityExplorer",
+                    "group": "navigation@2"
+                },
+                {
                     "command": "antigravity-unity.refreshUnityExplorer",
                     "when": "view == antigravity-unity.unityExplorer",
-                    "group": "navigation"
+                    "group": "navigation@3"
                 }
             ]
         },
@@ -209,6 +231,13 @@
                 "path": "./snippets/unity-csharp.json"
             }
         ],
+        "configurationDefaults": {
+            "[csharp]": {
+                "editor.formatOnType": true,
+                "editor.formatOnSave": true,
+                "editor.formatOnPaste": true
+            }
+        },
         "configuration": {
             "title": "Antigravity Unity",
             "properties": {

@@ -48,14 +48,45 @@ export async function activate(context: vscode.ExtensionContext) {
     if (workspaceRoot) {
         const unityExplorer = new UnityExplorerProvider(workspaceRoot);
 
-        context.subscriptions.push(
-            vscode.window.registerTreeDataProvider('antigravity-unity.unityExplorer', unityExplorer)
-        );
+        const treeView = vscode.window.createTreeView('antigravity-unity.unityExplorer', {
+            treeDataProvider: unityExplorer,
+            showCollapseAll: true
+        });
+        context.subscriptions.push(treeView);
 
         // Refresh command
         context.subscriptions.push(
             vscode.commands.registerCommand('antigravity-unity.refreshUnityExplorer', () => {
                 unityExplorer.refresh();
+            })
+        );
+
+        // Expand All command
+        context.subscriptions.push(
+            vscode.commands.registerCommand('antigravity-unity.expandAllUnityExplorer', async () => {
+                await unityExplorer.expandAll(treeView);
+            })
+        );
+
+        // Reveal Active File / Show Current Script command
+        context.subscriptions.push(
+            vscode.commands.registerCommand('antigravity-unity.revealActiveFileInUnityExplorer', async () => {
+                const activeEditor = vscode.window.activeTextEditor;
+                if (!activeEditor) {
+                    vscode.window.showInformationMessage('No active script open in editor.');
+                    return;
+                }
+                const activeFilePath = activeEditor.document.uri.fsPath;
+                const item = unityExplorer.findItemForPath(activeFilePath);
+                if (item) {
+                    try {
+                        await treeView.reveal(item, { select: true, focus: true, expand: true });
+                    } catch (err) {
+                        vscode.window.showWarningMessage(`Could not locate script in Unity Explorer: ${path.basename(activeFilePath)}`);
+                    }
+                } else {
+                    vscode.window.showInformationMessage(`The current file is outside the Unity project: ${path.basename(activeFilePath)}`);
+                }
             })
         );
 

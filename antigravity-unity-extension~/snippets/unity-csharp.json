@@ -92,29 +92,49 @@
         "description": "Unity PropertyDrawer class"
     },
     "SerializeField": {
-        "prefix": "sfield",
+        "prefix": ["sfield", "SerializeField", "[SerializeField]", "sf", "serializefield"],
         "body": "[SerializeField] private ${1:int} ${2:fieldName};",
         "description": "[SerializeField] private field"
     },
     "Header attribute": {
-        "prefix": "header",
+        "prefix": ["header", "Header", "[Header]"],
         "body": "[Header(\"${1:Section Name}\")]",
         "description": "Unity Header attribute"
     },
     "Tooltip attribute": {
-        "prefix": "tooltip",
+        "prefix": ["tooltip", "Tooltip", "[Tooltip]"],
         "body": "[Tooltip(\"${1:Description}\")]",
         "description": "Unity Tooltip attribute"
     },
     "Range attribute": {
-        "prefix": "range",
+        "prefix": ["range", "Range", "[Range]"],
         "body": "[Range(${1:0}, ${2:1})]",
         "description": "Unity Range attribute"
     },
+    "Space attribute": {
+        "prefix": ["space", "Space", "[Space]"],
+        "body": "[Space(${1:10})]",
+        "description": "Unity Space attribute"
+    },
+    "HideInInspector attribute": {
+        "prefix": ["hideininspector", "HideInInspector", "[HideInInspector]"],
+        "body": "[HideInInspector]",
+        "description": "Unity HideInInspector attribute"
+    },
+    "FormerlySerializedAs attribute": {
+        "prefix": ["formerlyserializedas", "FormerlySerializedAs", "[FormerlySerializedAs]"],
+        "body": "[FormerlySerializedAs(\"${1:oldName}\")]",
+        "description": "Unity FormerlySerializedAs attribute"
+    },
     "RequireComponent": {
-        "prefix": "reqcomp",
+        "prefix": ["reqcomp", "RequireComponent", "[RequireComponent]"],
         "body": "[RequireComponent(typeof(${1:Rigidbody}))]",
         "description": "Unity RequireComponent attribute"
+    },
+    "Inject attribute": {
+        "prefix": ["inject", "Inject", "[Inject]"],
+        "body": "[Inject]",
+        "description": "VContainer / Zenject Inject attribute"
     },
     "Coroutine": {
         "prefix": "coroutine",
