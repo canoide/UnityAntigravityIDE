@@ -62,13 +62,14 @@ def run(cmd, cwd=None, check=True):
 
 # ─── Unity Package Builder ───────────────────────────────────────────
 INSTALL_PREFIX = "Assets/Plugins/AntigravityIDE"
-INCLUDE_FOLDERS = ["Editor"]
+INCLUDE_FOLDERS = ["Editor", "Editor/Analyzers"]
 INCLUDE_FILES = [
     "Editor/AntigravityScriptEditor.cs",
     "Editor/ProjectGeneration.cs",
     "Editor/UnityAnalyzerConfig.cs",
     "Editor/UnityDebugBridge.cs",
     "Editor/Antigravity.Ide.Editor.asmdef",
+    "Editor/Analyzers/Microsoft.Unity.Analyzers.dll",
     "package.json",
     "README.md",
 ]

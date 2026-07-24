@@ -10,13 +10,50 @@ using UnityEngine;
 [InitializeOnLoad]
 public class AntigravityScriptEditor : IExternalCodeEditor
 {
-    const string EditorName = "Antigravity";
+    const string EditorName = "Antigravity IDE";
     const string PrefKey_DebugPort = "Antigravity_DebugPort";
     const string PrefKey_ReuseWindow = "Antigravity_ReuseWindow";
+    const string PrefKey_OpenWindowMode = "Antigravity_OpenWindowMode";
     const string PrefKey_GenerateLaunchJson = "Antigravity_GenerateLaunchJson";
     const string PrefKey_AnalyzerLevel = "Antigravity_AnalyzerLevel";
     const string PrefKey_Arguments = "Antigravity_Arguments";
     const string PrefKey_Extensions = "Antigravity_UserExtensions";
+    const string PrefKey_ShowLogs = "Antigravity_ShowLogs";
+
+    private static bool s_ShowLogs = false;
+
+    public enum OpenWindowMode
+    {
+        Prompt = 0,       // Ask when Antigravity IDE is currently running
+        ReuseWindow = 1,  // Always reuse active window (--reuse-window)
+        NewWindow = 2     // Always open in a new window (--new-window)
+    }
+
+    private static OpenWindowMode? s_SessionWindowMode = null;
+
+    public static OpenWindowMode WindowMode
+    {
+        get => s_SessionWindowMode ?? OpenWindowMode.Prompt;
+        set => s_SessionWindowMode = value;
+    }
+
+    /// <summary>When true, informational [Antigravity] messages are printed to the Unity Console.</summary>
+    public static bool ShowLogs
+    {
+        get => s_ShowLogs;
+        set
+        {
+            s_ShowLogs = value;
+            try
+            {
+                EditorPrefs.SetBool(PrefKey_ShowLogs, value);
+            }
+            catch
+            {
+                // In case called outside main thread
+            }
+        }
+    }
 
     // ✅ LEARN: Proper filename-based detection like com.unity.ide.vscode
     // NOTE: All names here must be lowercase, with NO spaces or dashes.
@@ -24,15 +61,16 @@ public class AntigravityScriptEditor : IExternalCodeEditor
     static readonly string[] k_SupportedFileNames =
     {
         // Windows
-        "antigravity.exe",
         "antigravityide.exe",
+        "antigravity-ide.exe",
         // macOS (.app bundles and inner binaries)
-        "antigravity.app",
         "antigravityide.app",
-        "antigravity",
+        "antigravity-ide.app",
         "antigravityide",
+        "antigravity-ide",
         // Linux
         "antigravityide",
+        "antigravity-ide",
     };
 
     static readonly string DefaultArgument = "\"$(ProjectPath)\" -g \"$(File)\":$(Line):$(Column)";
@@ -89,34 +127,38 @@ public class AntigravityScriptEditor : IExternalCodeEditor
 
             if (Application.platform == RuntimePlatform.OSXEditor)
             {
-                // System Applications
-                paths.Add("/Applications/Antigravity.app");
+                // System Applications - PRIORITIZE Antigravity-IDE
+                paths.Add("/Applications/Antigravity-IDE.app");
                 paths.Add("/Applications/Antigravity IDE.app");
-                // User Applications
+
+                // User Applications - PRIORITIZE Antigravity-IDE
                 var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                paths.Add(Path.Combine(userProfile, "Applications", "Antigravity.app"));
+                paths.Add(Path.Combine(userProfile, "Applications", "Antigravity-IDE.app"));
                 paths.Add(Path.Combine(userProfile, "Applications", "Antigravity IDE.app"));
-                // Homebrew
-                paths.Add("/opt/homebrew/bin/antigravity");
-                paths.Add("/usr/local/bin/antigravity");
+
+                // Homebrew / CLI - PRIORITIZE Antigravity-IDE
+                paths.Add("/opt/homebrew/bin/antigravity-ide");
+                paths.Add("/usr/local/bin/antigravity-ide");
             }
             else if (Application.platform == RuntimePlatform.WindowsEditor)
             {
                 var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                paths.Add(Path.Combine(localAppData, "Programs", "Antigravity", "Antigravity.exe"));
                 paths.Add(Path.Combine(localAppData, "Programs", "Antigravity IDE", "Antigravity IDE.exe"));
+                paths.Add(Path.Combine(localAppData, "Programs", "Antigravity IDE", "antigravity-ide.exe"));
 
                 var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-                paths.Add(Path.Combine(programFiles, "Antigravity", "Antigravity.exe"));
+                paths.Add(Path.Combine(programFiles, "Antigravity IDE", "Antigravity IDE.exe"));
+                paths.Add(Path.Combine(programFiles, "Antigravity IDE", "antigravity-ide.exe"));
             }
             else if (Application.platform == RuntimePlatform.LinuxEditor)
             {
-                paths.Add("/opt/Antigravity/antigravity");
-                paths.Add("/usr/bin/antigravity");
-                paths.Add("/usr/local/bin/antigravity");
+                // PRIORITIZE Antigravity-IDE
+                paths.Add("/opt/Antigravity/antigravity-ide");
+                paths.Add("/usr/bin/antigravity-ide");
+                paths.Add("/usr/local/bin/antigravity-ide");
 
                 var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                paths.Add(Path.Combine(userProfile, ".local", "bin", "antigravity"));
+                paths.Add(Path.Combine(userProfile, ".local", "bin", "antigravity-ide"));
             }
 
             return paths.ToArray();
@@ -125,6 +167,15 @@ public class AntigravityScriptEditor : IExternalCodeEditor
 
     static AntigravityScriptEditor()
     {
+        try
+        {
+            s_ShowLogs = EditorPrefs.GetBool(PrefKey_ShowLogs, false);
+        }
+        catch
+        {
+            // Ignored if non-main thread
+        }
+
         var editor = new AntigravityScriptEditor();
         CodeEditor.Register(editor);
 
@@ -151,9 +202,45 @@ public class AntigravityScriptEditor : IExternalCodeEditor
         return Path.Combine(Directory.GetCurrentDirectory(), $"{projectName}.sln");
     }
 
+    public static bool IsSelectedEditor()
+    {
+        return IsAntigravityInstallation(CodeEditor.CurrentEditorInstallation);
+    }
+
     private static bool IsAntigravityInstalled()
     {
         return KnownPaths.Any(p => File.Exists(p) || Directory.Exists(p));
+    }
+
+    private static bool IsAntigravityRunning()
+    {
+        try
+        {
+            var processes = Process.GetProcesses();
+            foreach (var proc in processes)
+            {
+                try
+                {
+                    string processName = proc.ProcessName;
+                    if (string.IsNullOrEmpty(processName)) continue;
+
+                    string normalized = NormalizeFileName(processName);
+                    if (normalized.Contains("antigravity"))
+                    {
+                        return true;
+                    }
+                }
+                catch (Exception)
+                {
+                    // Ignore processes that cannot be accessed due to system permissions
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            if (ShowLogs) UnityEngine.Debug.LogWarning($"[Antigravity] Failed to check running processes: {e.Message}");
+        }
+        return false;
     }
 
     // ✅ LEARN: Filename-based check like IsVSCodeInstallation
@@ -161,15 +248,30 @@ public class AntigravityScriptEditor : IExternalCodeEditor
     {
         if (string.IsNullOrEmpty(path)) return false;
 
+        // Strictly avoid standalone agent/secondary background binaries
+        if (path.IndexOf("agent", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("cli", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("helper", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("daemon", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("crashreporter", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("updater", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("notification", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("renderer", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("gpu", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return false;
+        }
+
         // Check filename directly
         var filename = Path.GetFileName(path);
         var normalized = NormalizeFileName(filename);
         if (k_SupportedFileNames.Contains(normalized))
             return true;
 
-        // On macOS, the inner binary might be "Electron" inside "Antigravity.app"
-        // Check if any parent directory is an Antigravity .app bundle
-        if (path.IndexOf("Antigravity", StringComparison.OrdinalIgnoreCase) >= 0)
+        // On macOS, the inner binary might be "Electron" inside "Antigravity IDE.app"
+        // Check if any parent directory is an Antigravity IDE .app bundle
+        if (path.IndexOf("Antigravity IDE", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            path.IndexOf("Antigravity-IDE", StringComparison.OrdinalIgnoreCase) >= 0)
             return true;
 
         return false;
@@ -192,7 +294,7 @@ public class AntigravityScriptEditor : IExternalCodeEditor
                 string executable = Path.Combine(macosDir, appName);
                 if (File.Exists(executable)) return executable;
 
-                foreach (var name in new[] { "Antigravity", "Antigravity IDE", "antigravity", "Electron" })
+                foreach (var name in new[] { "Antigravity-IDE", "antigravity-ide", "Antigravity", "Antigravity IDE", "antigravity", "Electron" })
                 {
                     executable = Path.Combine(macosDir, name);
                     if (File.Exists(executable)) return executable;
@@ -267,23 +369,33 @@ public class AntigravityScriptEditor : IExternalCodeEditor
 
         EditorGUILayout.Space(4);
 
-        // Reuse window preference
-        bool reuseWindow = EditorPrefs.GetBool(PrefKey_ReuseWindow, true);
-        bool newReuseWindow = EditorGUILayout.Toggle(
-            new GUIContent("Reuse Window", "Open files in existing Antigravity window instead of launching a new one"),
-            reuseWindow);
-        if (newReuseWindow != reuseWindow)
-            EditorPrefs.SetBool(PrefKey_ReuseWindow, newReuseWindow);
+        // Open window mode preference
+        string[] windowModeOptions = { "Prompt (Ask when running)", "Reuse Active Window", "Always Open New Window" };
+        OpenWindowMode currentMode = WindowMode;
+        OpenWindowMode newMode = (OpenWindowMode)EditorGUILayout.Popup(
+            new GUIContent("Open Window Mode", "Configure whether opening a project reuses the active Antigravity window, opens a new window, or prompts when Antigravity is already running"),
+            (int)currentMode, windowModeOptions);
+        if (newMode != currentMode)
+        {
+            WindowMode = newMode;
+        }
 
         EditorGUILayout.Space(2);
 
-        // Debug port
-        int debugPort = EditorPrefs.GetInt(PrefKey_DebugPort, 56000);
-        int newDebugPort = EditorGUILayout.IntField(
-            new GUIContent("Debug Port", "TCP port for Unity debugger attachment (used in launch.json)"),
-            debugPort);
-        if (newDebugPort != debugPort)
-            EditorPrefs.SetInt(PrefKey_DebugPort, newDebugPort);
+        // Show verbose logs preference
+        bool showLogs = ShowLogs;
+        bool newShowLogs = EditorGUILayout.Toggle(
+            new GUIContent("Show Logs", "Print informational [Antigravity] messages to the Unity Console (errors and warnings are always shown)"),
+            showLogs);
+        if (newShowLogs != showLogs)
+            ShowLogs = newShowLogs;
+
+        EditorGUILayout.Space(2);
+
+        // Debug port (automatically assigned)
+        EditorGUILayout.LabelField(
+            new GUIContent("Active Debug Port", "TCP port automatically assigned for Antigravity IDE connection"),
+            new GUIContent(UnityDebugBridge.CurrentPort.ToString()));
 
         EditorGUILayout.Space(2);
 
@@ -337,10 +449,13 @@ public class AntigravityScriptEditor : IExternalCodeEditor
         {
             EditorPrefs.DeleteKey(PrefKey_DebugPort);
             EditorPrefs.DeleteKey(PrefKey_ReuseWindow);
+            EditorPrefs.DeleteKey(PrefKey_OpenWindowMode);
             EditorPrefs.DeleteKey(PrefKey_GenerateLaunchJson);
             EditorPrefs.DeleteKey(PrefKey_AnalyzerLevel);
             EditorPrefs.DeleteKey(PrefKey_Arguments);
             EditorPrefs.DeleteKey(PrefKey_Extensions);
+            EditorPrefs.DeleteKey(PrefKey_ShowLogs);
+            s_ShowLogs = false;
 
             UnityEngine.Debug.Log("[Antigravity] Settings reset to defaults.");
         }
@@ -364,8 +479,6 @@ public class AntigravityScriptEditor : IExternalCodeEditor
         if (string.IsNullOrEmpty(filePath))
             filePath = projectDir;
 
-        bool reuseWindow = EditorPrefs.GetBool(PrefKey_ReuseWindow, true);
-
         try
         {
             var process = new Process();
@@ -376,17 +489,23 @@ public class AntigravityScriptEditor : IExternalCodeEditor
                 process.StartInfo.UseShellExecute = false;
                 process.StartInfo.CreateNoWindow = true;
 
-                if (Directory.Exists(filePath))
+                if (Directory.Exists(filePath) && filePath == projectDir)
                 {
-                    // Opening a folder — use `open -a` (native macOS, reuses existing app)
-                    process.StartInfo.Arguments = $"-a \"{installation}\" \"{filePath}\"";
+                    process.StartInfo.Arguments = $"-a \"{installation}\" \"{projectDir}\"";
                 }
                 else
                 {
-                    // Opening a file at line:col — use antigravity:// URL scheme
-                    // macOS routes this to the existing app instance (no new dock icon)
-                    string uri = $"antigravity://file{filePath}:{line}:{column}";
-                    process.StartInfo.Arguments = $"\"{uri}\"";
+                    string cliBinary = GetExecutablePath(installation);
+                    if (File.Exists(cliBinary) && cliBinary != installation)
+                    {
+                        process.StartInfo.FileName = cliBinary;
+                        process.StartInfo.Arguments = $"\"{projectDir}\" --goto \"{filePath}:{line}:{column}\"";
+                    }
+                    else
+                    {
+                        string uri = $"antigravity://file{filePath}:{line}:{column}";
+                        process.StartInfo.Arguments = $"\"{uri}\"";
+                    }
                 }
             }
             else if (Application.platform == RuntimePlatform.OSXEditor)
@@ -395,13 +514,9 @@ public class AntigravityScriptEditor : IExternalCodeEditor
                 process.StartInfo.FileName = installation;
 
                 var args = new List<string>();
-                if (reuseWindow) args.Add("--reuse-window");
+                args.Add($"\"{projectDir}\"");
 
-                if (Directory.Exists(filePath))
-                {
-                    args.Add($"\"{filePath}\"");
-                }
-                else
+                if (!Directory.Exists(filePath) || filePath != projectDir)
                 {
                     args.Add("--goto");
                     args.Add($"\"{filePath}:{line}:{column}\"");
@@ -417,13 +532,9 @@ public class AntigravityScriptEditor : IExternalCodeEditor
                 process.StartInfo.FileName = GetExecutablePath(installation);
 
                 var args = new List<string>();
-                if (reuseWindow) args.Add("--reuse-window");
+                args.Add($"\"{projectDir}\"");
 
-                if (Directory.Exists(filePath))
-                {
-                    args.Add($"\"{filePath}\"");
-                }
-                else
+                if (!Directory.Exists(filePath) || filePath != projectDir)
                 {
                     args.Add("--goto");
                     args.Add($"\"{filePath}:{line}:{column}\"");
@@ -468,6 +579,27 @@ public class AntigravityScriptEditor : IExternalCodeEditor
 
     public bool TryGetInstallationForPath(string editorPath, out CodeEditor.Installation installation)
     {
+        if (string.IsNullOrEmpty(editorPath))
+        {
+            installation = default;
+            return false;
+        }
+
+        // Strictly avoid standalone agent/secondary background binaries
+        if (editorPath.IndexOf("agent", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("cli", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("helper", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("daemon", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("crashreporter", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("updater", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("notification", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("renderer", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            editorPath.IndexOf("gpu", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            installation = default;
+            return false;
+        }
+
         var filename = Path.GetFileName(editorPath);
         var normalized = NormalizeFileName(filename);
         bool filenameMatch = k_SupportedFileNames.Contains(normalized);

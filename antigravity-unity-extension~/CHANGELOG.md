@@ -2,6 +2,13 @@
 
 All notable changes to the Antigravity Unity extension will be documented in this file.
 
+## v1.2.53
+- feat: JetBrains Rider-style [SerializeField] Inspector values visualization in C# editor
+- feat: Unity Explorer tree view with locate active script, expand/collapse controls
+- feat: Unity 6 EntityId / InstanceID preprocessor directives and socket reuse fixes
+- feat: C# attribute completions for [SerializeField], [Header], [Tooltip], [Inject], etc.
+- feat: formatOnType and formatOnSave C# Rider-like auto-formatting defaults
+
 ## v1.2.52
 - fix: improve ProjectGeneration.cs reliability
 

@@ -1,13 +1,10 @@
 # Antigravity Unity — C# IntelliSense for Unity without Microsoft Lock-in
 
-[![Open VSX Version](https://img.shields.io/open-vsx/v/antigravity-unity/antigravity-unity?label=Open%20VSX&color=blueviolet)](https://open-vsx.org/extension/antigravity-unity/antigravity-unity)
-[![Open VSX Downloads](https://img.shields.io/open-vsx/dt/antigravity-unity/antigravity-unity?color=brightgreen)](https://open-vsx.org/extension/antigravity-unity/antigravity-unity)
-[![Open VSX Rating](https://img.shields.io/open-vsx/rating/antigravity-unity/antigravity-unity?color=orange)](https://open-vsx.org/extension/antigravity-unity/antigravity-unity#review-details)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-<a href='https://ko-fi.com/Y8Y61ABMM' target='_blank'>
-  <img width='200' src='https://storage.ko-fi.com/cdn/kofi2.png?v=6' alt='Support me on Ko-fi' />
-</a>
+> [!NOTE]
+> **Active Maintenance Fork / Community Continuation**
+> This repository is an actively maintained continuation of `UnityAntigravityIDE` (originally by `billythekidz`). Since the original upstream project is no longer actively updated and PRs are not being processed, active maintenance, bug fixes, and releases continue here at [canoide/UnityAntigravityIDE](https://github.com/canoide/UnityAntigravityIDE).
 
 ## The Problem
 
@@ -30,7 +27,7 @@ Since Microsoft's C# extension isn't available, **DotRush is what gives you Inte
 - **Option A (Marketplace):** Search **"DotRush"** in Extensions and install `nromanov.dotrush`.
 - **Option B (Manual VSIX):** Download from [Open VSX](https://open-vsx.org/extension/nromanov/dotrush) and install via "Install from VSIX...".
 
-![DotRush Installation Guide](https://raw.githubusercontent.com/billythekidz/UnityAntigravityIDE/main/antigravity-unity-extension~/assets/dotrush_guide.jpg)
+![DotRush Installation Guide](https://raw.githubusercontent.com/canoide/UnityAntigravityIDE/main/antigravity-unity-extension~/assets/dotrush_guide.jpg)
 
 ### 2. Unity Editor Package (Required)
 
@@ -39,7 +36,7 @@ A small Unity package that generates optimized project files for fast IntelliSen
 **Install via Unity Package Manager:**
 1. Open Unity → **Window → Package Manager**
 2. Click **"+" → Add package from git URL...**
-3. Paste: `https://github.com/billythekidz/UnityAntigravityIDE.git`
+3. Paste: `https://github.com/canoide/UnityAntigravityIDE.git`
 
 **Then configure Unity:**
 1. Go to **Edit → Preferences → External Tools**
@@ -50,8 +47,8 @@ A small Unity package that generates optimized project files for fast IntelliSen
 
 ## 🚀 Quick Start
 
-1. **Install this extension** from the Marketplace or [Open VSX](https://open-vsx.org/extension/antigravity-unity/antigravity-unity).
-2. **Install the [Unity package](https://github.com/billythekidz/UnityAntigravityIDE.git)** via Package Manager.
+1. **Install this extension** via [GitHub Releases](https://github.com/canoide/UnityAntigravityIDE/releases/latest) (`Extensions: Install from VSIX...`).
+2. **Install the [Unity package](https://github.com/canoide/UnityAntigravityIDE.git)** via Package Manager.
 3. Open your project in **Antigravity IDE**. If prompted, allow DotRush to install.
 4. In Unity, set **Antigravity IDE** as your External Script Editor → click **"Regenerate project files"**.
 
@@ -61,10 +58,6 @@ A small Unity package that generates optimized project files for fast IntelliSen
 5. Done. IntelliSense should be working. If not, run `Developer: Reload Window`.
 
 ---
-
-<a href='https://ko-fi.com/Y8Y61ABMM' target='_blank'>
-  <img width='300' src='https://storage.ko-fi.com/cdn/kofi2.png?v=6' alt='Support me on Ko-fi' />
-</a>
 
 ## ✨ What You Get
 
@@ -150,7 +143,7 @@ Unity projects nested deep in folders can hit Windows' 260-character path limit:
 
 Some corporate environments block Open VSX or GitHub:
 
-- Try downloading the `.vsix` files manually from [Open VSX](https://open-vsx.org/extension/nromanov/dotrush) or [GitHub Releases](https://github.com/billythekidz/UnityAntigravityIDE/releases/latest).
+- Try downloading the `.vsix` files manually from [GitHub Releases](https://github.com/canoide/UnityAntigravityIDE/releases/latest).
 - Install via `Ctrl+Shift+P` → `Extensions: Install from VSIX...`.
 
 ### Windows: `Unable to watch for file changes` error
@@ -183,8 +176,8 @@ Your Unity project has **compile errors**. Fix all C# errors in the Console, the
 
 ## 🏗️ Open Source
 
-- **Repository**: [github.com/billythekidz/UnityAntigravityIDE](https://github.com/billythekidz/UnityAntigravityIDE)
-- **Issues & Requests**: [GitHub Issues](https://github.com/billythekidz/UnityAntigravityIDE/issues)
+- **Repository**: [github.com/canoide/UnityAntigravityIDE](https://github.com/canoide/UnityAntigravityIDE)
+- **Issues & Requests**: [GitHub Issues](https://github.com/canoide/UnityAntigravityIDE/issues)
 - **License**: MIT
 
 *Keywords: unity, c# intellisense, antigravity ide, vscodium, dotrush, roslyn, open source, microsoft c# alternative, unity debug*

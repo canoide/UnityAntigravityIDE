@@ -4,8 +4,46 @@ import * as path from 'path';
 import { registerCompletionProviders } from './completion/unityCompletions';
 import { registerCommands } from './commands/commands';
 // import { registerCsprojFixer } from './csproj/csprojFixer'; // Disabled: interferes with DotRush compilation
+import { ReferenceCodeLensProvider } from './csproj/codeLensProvider';
+import { UnityExplorerProvider, isUnityWorkspace } from './explorer/unityExplorer';
+import { InspectorValuesProvider } from './csproj/inspectorValuesProvider';
+import { VariableInspectorTreeProvider } from './debugger/debuggerInspector';
+import { UnityConnectionMonitor } from './unityConnection';
+import { getBridgeInfo } from './portResolver';
 
 const DOTRUSH_EXTENSION_ID = 'nromanov.dotrush';
+
+export class UnityDebugConfigurationProvider implements vscode.DebugConfigurationProvider {
+    resolveDebugConfiguration(
+        folder: vscode.WorkspaceFolder | undefined,
+        config: vscode.DebugConfiguration,
+        token?: vscode.CancellationToken
+    ): vscode.ProviderResult<vscode.DebugConfiguration> {
+        if (!config.type && !config.request && !config.name) {
+            config.type = 'unity';
+            config.name = 'Attach to Unity Editor';
+            config.request = 'attach';
+        }
+
+        if (config.type === 'unity') {
+            const rootPath = folder?.uri.fsPath || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (rootPath) {
+                const editorInstancePath = path.join(rootPath, 'Library', 'EditorInstance.json');
+                if (fs.existsSync(editorInstancePath)) {
+                    config.path = editorInstancePath;
+                }
+                config.projectPath = rootPath;
+
+                const bridgeInfo = getBridgeInfo();
+                if (bridgeInfo && bridgeInfo.processId) {
+                    config.processId = bridgeInfo.processId;
+                }
+            }
+        }
+
+        return config;
+    }
+}
 
 export async function activate(context: vscode.ExtensionContext) {
     // MUST be first: inject dotnet into PATH before DotRush tries to spawn it.
@@ -14,27 +52,127 @@ export async function activate(context: vscode.ExtensionContext) {
 
     console.log('[Antigravity Unity] Extension activated');
 
+    // Register Debug Configuration Provider to automatically target exact workspace Unity Editor
+    context.subscriptions.push(
+        vscode.debug.registerDebugConfigurationProvider('unity', new UnityDebugConfigurationProvider())
+    );
+
     // Auto-install DotRush if not present
     await ensureDotRushInstalled();
 
+    // Register Variable Inspector Provider
+    const variableInspectorProvider = new VariableInspectorTreeProvider(context);
+    const variableInspectorTreeView = vscode.window.createTreeView('antigravity-unity.variableInspector', {
+        treeDataProvider: variableInspectorProvider,
+        showCollapseAll: true
+    });
+    context.subscriptions.push(variableInspectorTreeView);
+
     // Register all features (debugging handled by DotRush)
     registerCompletionProviders(context);
-    registerCommands(context);
+    registerCommands(context, variableInspectorProvider);
     // registerCsprojFixer(context); // Disabled: interferes with DotRush compilation
+
+    // Register Reference CodeLens Provider
+    const codeLensProvider = new ReferenceCodeLensProvider();
+    context.subscriptions.push(
+        vscode.languages.registerCodeLensProvider(
+            { language: 'csharp', scheme: 'file' },
+            codeLensProvider
+        )
+    );
+
+    // Register JetBrains Rider-like Serialized Inspector Values Provider (Decorations & Hovers)
+    const inspectorValuesProvider = new InspectorValuesProvider(context);
+    context.subscriptions.push(
+        vscode.languages.registerHoverProvider(
+            { language: 'csharp', scheme: 'file' },
+            inspectorValuesProvider
+        )
+    );
+
+    // Register Unity Explorer TreeView
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const isUnity = isUnityWorkspace(workspaceRoot);
+    vscode.commands.executeCommand('setContext', 'antigravity-unity.isUnityProject', isUnity);
+
+    if (workspaceRoot && isUnity) {
+        const unityExplorer = new UnityExplorerProvider(workspaceRoot);
+
+        const treeView = vscode.window.createTreeView('antigravity-unity.unityExplorer', {
+            treeDataProvider: unityExplorer,
+            showCollapseAll: true
+        });
+        context.subscriptions.push(treeView);
+
+        // Refresh command
+        context.subscriptions.push(
+            vscode.commands.registerCommand('antigravity-unity.refreshUnityExplorer', () => {
+                unityExplorer.refresh();
+            })
+        );
+
+        // Expand All command
+        context.subscriptions.push(
+            vscode.commands.registerCommand('antigravity-unity.expandAllUnityExplorer', async () => {
+                await unityExplorer.expandAll(treeView);
+            })
+        );
+
+        // Reveal Active File / Show Current Script command
+        context.subscriptions.push(
+            vscode.commands.registerCommand('antigravity-unity.revealActiveFileInUnityExplorer', async () => {
+                const activeEditor = vscode.window.activeTextEditor;
+                if (!activeEditor) {
+                    vscode.window.showInformationMessage('No active script open in editor.');
+                    return;
+                }
+                const activeFilePath = activeEditor.document.uri.fsPath;
+                const item = unityExplorer.findItemForPath(activeFilePath);
+                if (item) {
+                    try {
+                        await treeView.reveal(item, { select: true, focus: true, expand: true });
+                    } catch (err) {
+                        vscode.window.showWarningMessage(`Could not locate script in Unity Explorer: ${path.basename(activeFilePath)}`);
+                    }
+                } else {
+                    vscode.window.showInformationMessage(`The current file is outside the Unity project: ${path.basename(activeFilePath)}`);
+                }
+            })
+        );
+
+        // Context Menu File Management Commands
+        context.subscriptions.push(
+            vscode.commands.registerCommand('antigravity-unity.explorerNewFile', (item) => unityExplorer.createFile(item)),
+            vscode.commands.registerCommand('antigravity-unity.explorerNewFolder', (item) => unityExplorer.createFolder(item)),
+            vscode.commands.registerCommand('antigravity-unity.explorerRename', (item) => unityExplorer.renameItem(item)),
+            vscode.commands.registerCommand('antigravity-unity.explorerDelete', (item) => unityExplorer.deleteItem(item)),
+            vscode.commands.registerCommand('antigravity-unity.explorerDuplicate', (item) => unityExplorer.duplicateItem(item)),
+            vscode.commands.registerCommand('antigravity-unity.explorerCopyPath', (item) => unityExplorer.copyPath(item)),
+            vscode.commands.registerCommand('antigravity-unity.explorerCopyRelativePath', (item) => unityExplorer.copyRelativePath(item)),
+            vscode.commands.registerCommand('antigravity-unity.explorerRevealInOS', (item) => unityExplorer.revealInOS(item)),
+            vscode.commands.registerCommand('antigravity-unity.explorerOpenToSide', (item) => unityExplorer.openToSide(item))
+        );
+
+        // Auto-refresh when files change in Assets or Packages
+        const assetsPattern = new vscode.RelativePattern(workspaceRoot, '{Assets,Packages}/**/*');
+        const watcher = vscode.workspace.createFileSystemWatcher(assetsPattern);
+        let refreshTimeout: NodeJS.Timeout | undefined;
+        const debouncedRefresh = () => {
+            if (refreshTimeout) clearTimeout(refreshTimeout);
+            refreshTimeout = setTimeout(() => unityExplorer.refresh(), 250);
+        };
+        watcher.onDidChange(debouncedRefresh);
+        watcher.onDidCreate(debouncedRefresh);
+        watcher.onDidDelete(debouncedRefresh);
+        context.subscriptions.push(watcher);
+    }
 
     // Watch for .csproj changes from Unity and auto-restart DotRush
     setupCsprojChangeWatcher(context);
 
-    // Show status bar item
-    const statusBarItem = vscode.window.createStatusBarItem(
-        vscode.StatusBarAlignment.Left,
-        100
-    );
-    statusBarItem.text = '$(unity) Unity';
-    statusBarItem.tooltip = 'Antigravity Unity Extension Active — C# powered by DotRush';
-    statusBarItem.command = 'antigravity-unity.openApiReference';
-    statusBarItem.show();
-    context.subscriptions.push(statusBarItem);
+    // Live Unity Connection Monitor & Status Bar Controller
+    const unityMonitor = new UnityConnectionMonitor(context);
 
 
     console.log('[Antigravity Unity] All features registered');
@@ -211,7 +349,7 @@ function setupCsprojChangeWatcher(context: vscode.ExtensionContext): void {
     }
 
     for (const folder of workspaceFolders) {
-        // Watch .csproj and .sln files directly — no marker file needed
+        // Watch .csproj and .sln files directly
         const csprojWatcher = vscode.workspace.createFileSystemWatcher(
             new vscode.RelativePattern(folder, '*.csproj')
         );
@@ -219,109 +357,62 @@ function setupCsprojChangeWatcher(context: vscode.ExtensionContext): void {
             new vscode.RelativePattern(folder, '*.sln')
         );
 
-        // Watch .cs file deletions — DotRush loads from .csproj which still
-        // references deleted files, causing stale errors until workspace reload
-        const csFileWatcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(folder, '**/*.cs')
-        );
-
-        // Debounce: multiple file operations may happen in quick succession
         let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+        let isReloading = false;
+        let pendingReload = false;
+
+        const executeReload = async (reason: string) => {
+            if (isReloading) {
+                // Queue a single follow-up reload if an active reload is currently running
+                pendingReload = true;
+                return;
+            }
+
+            isReloading = true;
+            pendingReload = false;
+
+            console.log(`[Antigravity Unity] ${reason} — reloading DotRush workspace...`);
+
+            try {
+                await vscode.commands.executeCommand('dotrush.reloadWorkspace');
+                console.log('[Antigravity Unity] DotRush workspace reload completed');
+            } catch (err) {
+                console.warn('[Antigravity Unity] Failed to reload DotRush workspace:', err);
+            } finally {
+                isReloading = false;
+                if (pendingReload) {
+                    pendingReload = false;
+                    setTimeout(() => executeReload('Pending project changes'), 1500);
+                }
+            }
+        };
 
         const triggerReload = (reason: string) => {
             if (debounceTimer) {
                 clearTimeout(debounceTimer);
             }
 
-            // Wait 2s for all file operations to settle before reloading
-            debounceTimer = setTimeout(async () => {
+            // Wait 2.5s for all project file writes to settle
+            debounceTimer = setTimeout(() => {
                 debounceTimer = null;
-
-                console.log(`[Antigravity Unity] ${reason} — reloading DotRush workspace...`);
-
-                try {
-                    await vscode.commands.executeCommand('dotrush.reloadWorkspace');
-                    console.log('[Antigravity Unity] DotRush workspace reload triggered successfully');
-                } catch (err) {
-                    console.warn('[Antigravity Unity] Failed to reload DotRush workspace:', err);
-                }
-            }, 2000);
+                executeReload(reason);
+            }, 2500);
         };
 
         // .csproj/.sln changes (from Unity regeneration)
         const handleProjectFileChange = (uri: vscode.Uri) => {
             triggerReload(`Project file changed: ${path.basename(uri.fsPath)}`);
         };
+
         csprojWatcher.onDidCreate(handleProjectFileChange);
         csprojWatcher.onDidChange(handleProjectFileChange);
         slnWatcher.onDidCreate(handleProjectFileChange);
         slnWatcher.onDidChange(handleProjectFileChange);
 
-        // .cs file deletions — remove stale <Compile> entries from .csproj
-        // so DotRush doesn't try to compile a missing file.
-        // The .csproj modification then triggers csprojWatcher → DotRush reload.
-        csFileWatcher.onDidDelete((uri: vscode.Uri) => {
-            removeCsprojCompileEntry(uri, folder.uri.fsPath);
-        });
-
-        context.subscriptions.push(csprojWatcher, slnWatcher, csFileWatcher);
+        context.subscriptions.push(csprojWatcher, slnWatcher);
     }
 
-    console.log('[Antigravity Unity] .csproj/.sln and .cs file watchers initialized');
-}
-
-/**
- * Removes <Compile Include="..."> entries for a deleted .cs file from all .csproj files.
- * Unity uses forward-slash relative paths (e.g. "Assets/Scripts/Foo.cs").
- * The .csproj write triggers the existing csprojWatcher → DotRush reload chain.
- */
-async function removeCsprojCompileEntry(deletedFileUri: vscode.Uri, workspaceRoot: string): Promise<void> {
-    const fs = await import('fs');
-
-    // Build the relative path Unity uses in .csproj (forward slashes)
-    const relativePath = path.relative(workspaceRoot, deletedFileUri.fsPath).replace(/\\/g, '/');
-    const fileName = path.basename(deletedFileUri.fsPath);
-
-    // Find all .csproj files in workspace root (Unity puts them at project root)
-    const csprojFiles = await vscode.workspace.findFiles(
-        new vscode.RelativePattern(workspaceRoot, '*.csproj')
-    );
-
-    let modified = false;
-
-    for (const csproj of csprojFiles) {
-        try {
-            const content = fs.readFileSync(csproj.fsPath, 'utf8');
-
-            // Match <Compile Include="Assets/GameSparksServer/Foo.cs" /> (with optional whitespace)
-            // Unity uses both self-closing and full tags
-            const escapedPath = relativePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const pattern = new RegExp(
-                `^\\s*<Compile\\s+Include="${escapedPath}"\\s*/>\\s*\\r?\\n?`,
-                'gm'
-            );
-
-            if (pattern.test(content)) {
-                const updated = content.replace(pattern, '');
-                fs.writeFileSync(csproj.fsPath, updated, 'utf8');
-                modified = true;
-                console.log(`[Antigravity Unity] Removed <Compile> entry for ${fileName} from ${path.basename(csproj.fsPath)}`);
-            }
-        } catch (err) {
-            console.warn(`[Antigravity Unity] Failed to update ${path.basename(csproj.fsPath)}:`, err);
-        }
-    }
-
-    if (!modified) {
-        // File wasn't in any .csproj — still trigger reload to clear cached diagnostics
-        console.log(`[Antigravity Unity] ${fileName} not found in any .csproj — triggering DotRush reload`);
-        try {
-            await vscode.commands.executeCommand('dotrush.reloadWorkspace');
-        } catch (err) {
-            console.warn('[Antigravity Unity] Failed to reload DotRush workspace:', err);
-        }
-    }
-    // If modified, the csprojWatcher will detect the change and trigger reload automatically
+    console.log('[Antigravity Unity] .csproj/.sln file watchers initialized');
 }
 
 

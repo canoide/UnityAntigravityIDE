@@ -1,14 +1,11 @@
 # Antigravity Unity IDE Support
 
-[![Open VSX Version](https://img.shields.io/open-vsx/v/antigravity-unity/antigravity-unity?label=Open%20VSX&color=blueviolet)](https://open-vsx.org/extension/antigravity-unity/antigravity-unity)
-[![Open VSX Downloads](https://img.shields.io/open-vsx/dt/antigravity-unity/antigravity-unity?color=brightgreen)](https://open-vsx.org/extension/antigravity-unity/antigravity-unity)
-[![Open VSX Rating](https://img.shields.io/open-vsx/rating/antigravity-unity/antigravity-unity?color=orange)](https://open-vsx.org/extension/antigravity-unity/antigravity-unity#review-details)
-[![GitHub Release](https://img.shields.io/github/v/release/billythekidz/UnityAntigravityIDE?color=blue)](https://github.com/billythekidz/UnityAntigravityIDE/releases/latest)
+[![GitHub Release](https://img.shields.io/github/v/release/canoide/UnityAntigravityIDE?color=blue)](https://github.com/canoide/UnityAntigravityIDE/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-<a href='https://ko-fi.com/Y8Y61ABMM' target='_blank'>
-  <img width='200' src='https://storage.ko-fi.com/cdn/kofi2.png?v=6' alt='Support me on Ko-fi' />
-</a>
+> [!NOTE]
+> **Active Maintenance Fork / Community Continuation**
+> This repository is an actively maintained continuation of `UnityAntigravityIDE` (originally by `billythekidz`). Since the original upstream project is no longer actively updated and PRs are not being processed, active maintenance, bug fixes, and releases continue here at [canoide/UnityAntigravityIDE](https://github.com/canoide/UnityAntigravityIDE).
 
 Full-featured Unity integration for Antigravity IDE — IntelliSense, debugging, Roslyn analyzers, and optimized project generation.
 
@@ -50,21 +47,20 @@ Add to your Unity project's `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.antigravity.ide": "https://github.com/billythekidz/UnityAntigravityIDE.git"
+    "com.canoide.antigravity.ide": "https://github.com/canoide/UnityAntigravityIDE.git"
   }
 }
 ```
 
 Or use Unity Package Manager → Add package from git URL:
 ```
-https://github.com/billythekidz/UnityAntigravityIDE.git
+https://github.com/canoide/UnityAntigravityIDE.git
 ```
 
 ### 1. Antigravity Unity IDE Extension
 The extension provides Unity debugger, syntax highlighting for shaders, and deep IDE integration. 
 
-- **Option A (Marketplace):** Search for **"Antigravity Unity"** in the Extensions Marketplace (or [Open VSX](https://open-vsx.org/extension/antigravity-unity/antigravity-unity)) and install.
-- **Option B (Manual VSIX):** Download the latest `.vsix` from our [GitHub Releases](https://github.com/billythekidz/UnityAntigravityIDE/releases/latest) and install via `Extensions: Install from VSIX...`.
+- **Manual VSIX / Releases:** Download the latest `.vsix` from our [GitHub Releases](https://github.com/canoide/UnityAntigravityIDE/releases/latest) and install via `Extensions: Install from VSIX...`.
 
 ### 2. DotRush (Mandatory for IntelliSense)
 **DotRush is REQUIRED** for C# IntelliSense and debugging.
@@ -72,7 +68,7 @@ The extension provides Unity debugger, syntax highlighting for shaders, and deep
 - **Marketplace:** Search for **"DotRush"** or install `nromanov.dotrush`.
 - **Manual install:** Download from [Open VSX](https://open-vsx.org/extension/nromanov/dotrush) if using an offline environment.
 
-![Installation Guide](https://raw.githubusercontent.com/billythekidz/UnityAntigravityIDE/main/antigravity-unity-extension~/assets/dotrush_guide.jpg)
+![Installation Guide](https://raw.githubusercontent.com/canoide/UnityAntigravityIDE/main/antigravity-unity-extension~/assets/dotrush_guide.jpg)
 
 ---
 
@@ -84,10 +80,6 @@ The extension provides Unity debugger, syntax highlighting for shaders, and deep
 4. In Unity Editor: **Edit → Preferences → External Tools → External Script Editor → Antigravity IDE**
 5. Click **"Regenerate project files"** in the Antigravity IDE preferences panel
 6. Done! IntelliSense, debugging, and syntax highlighting are ready.
-
-<a href='https://ko-fi.com/Y8Y61ABMM' target='_blank'>
-  <img width='300' src='https://storage.ko-fi.com/cdn/kofi2.png?v=6' alt='Support me on Ko-fi' />
-</a>
 
 ---
 
@@ -166,7 +158,7 @@ This is the most common issue. Check these in order:
 | Check | Fix |
 |-------|-----|
 | DotRush not installed | Install `nromanov.dotrush` from Extensions or [Open VSX](https://open-vsx.org/extension/nromanov/dotrush) |
-| Antigravity Unity extension not installed | Install from [Marketplace](https://open-vsx.org/extension/antigravity-unity/antigravity-unity) or [GitHub Releases](https://github.com/billythekidz/UnityAntigravityIDE/releases/latest) |
+| Antigravity Unity extension not installed | Download `.vsix` from [GitHub Releases](https://github.com/canoide/UnityAntigravityIDE/releases/latest) and install via `Extensions: Install from VSIX...` |
 | Wrong solution file selected | When DotRush prompts, pick the **`.sln`** file — not `.csproj` or `.slnx` |
 | No `.sln` file exists | In Unity: **Edit → Preferences → External Tools → Regenerate project files** |
 | DotRush not activated | Check Extensions panel — it must be **enabled**, not just installed |
@@ -235,7 +227,7 @@ Unity projects nested deep in folders can hit Windows' 260-character path limit:
 
 Some corporate/school environments block Open VSX or GitHub:
 
-- Download `.vsix` files manually from [Open VSX](https://open-vsx.org/extension/nromanov/dotrush) or [GitHub Releases](https://github.com/billythekidz/UnityAntigravityIDE/releases/latest).
+- Download `.vsix` files manually from [Open VSX](https://open-vsx.org/extension/nromanov/dotrush) or [GitHub Releases](https://github.com/canoide/UnityAntigravityIDE/releases/latest).
 - Install via `Ctrl+Shift+P` → `Extensions: Install from VSIX...`.
 
 ### Windows: `Unable to watch for file changes` error

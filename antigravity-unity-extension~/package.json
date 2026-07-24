@@ -2,16 +2,13 @@
     "name": "antigravity-unity",
     "displayName": "Antigravity Unity",
     "description": "C# IntelliSense, debugging, and Unity integration without Microsoft's locked extensions. Powered by DotRush + Roslyn.",
-    "version": "1.2.52",
+    "version": "1.0.0",
     "icon": "assets/icon.png",
-    "publisher": "antigravity-unity",
+    "publisher": "canoide",
     "license": "MIT",
-    "sponsor": {
-        "url": "https://ko-fi.com/Y8Y61ABMM"
-    },
     "repository": {
         "type": "git",
-        "url": "https://github.com/billythekidz/UnityAntigravityIDE"
+        "url": "https://github.com/canoide/UnityAntigravityIDE"
     },
     "engines": {
         "vscode": "^1.80.0"
@@ -53,6 +50,36 @@
                 "category": "Antigravity"
             },
             {
+                "command": "antigravity-unity.evaluateExpression",
+                "title": "Evaluate Expression...",
+                "category": "Antigravity",
+                "icon": "$(debug-console)"
+            },
+            {
+                "command": "antigravity-unity.addWatchVariable",
+                "title": "Add Watch Variable",
+                "category": "Antigravity",
+                "icon": "$(add)"
+            },
+            {
+                "command": "antigravity-unity.removeWatchVariable",
+                "title": "Remove Watch",
+                "category": "Antigravity",
+                "icon": "$(trash)"
+            },
+            {
+                "command": "antigravity-unity.editVariableValue",
+                "title": "Modify Variable Value...",
+                "category": "Antigravity",
+                "icon": "$(edit)"
+            },
+            {
+                "command": "antigravity-unity.refreshVariableInspector",
+                "title": "Refresh Variable Inspector",
+                "category": "Antigravity",
+                "icon": "$(refresh)"
+            },
+            {
                 "command": "antigravity-unity.openApiReference",
                 "title": "Unity API Reference",
                 "category": "Antigravity"
@@ -61,8 +88,193 @@
                 "command": "antigravity-unity.regenerateProjectFiles",
                 "title": "Regenerate Project Files",
                 "category": "Antigravity"
+            },
+            {
+                "command": "antigravity-unity.findUsagesInAssets",
+                "title": "Find Usages in Unity Assets",
+                "category": "Antigravity"
+            },
+            {
+                "command": "antigravity-unity.refreshUnityExplorer",
+                "title": "Refresh Unity Explorer",
+                "category": "Antigravity",
+                "icon": "$(refresh)"
+            },
+            {
+                "command": "antigravity-unity.revealActiveFileInUnityExplorer",
+                "title": "Show Current Script in Unity Explorer",
+                "category": "Antigravity",
+                "icon": "$(target)"
+            },
+            {
+                "command": "antigravity-unity.expandAllUnityExplorer",
+                "title": "Expand All Folders",
+                "category": "Antigravity",
+                "icon": "$(expand-all)"
+            },
+            {
+                "command": "antigravity-unity.explorerNewFile",
+                "title": "New File",
+                "category": "Unity Explorer",
+                "icon": "$(file-add)"
+            },
+            {
+                "command": "antigravity-unity.explorerNewFolder",
+                "title": "New Folder",
+                "category": "Unity Explorer",
+                "icon": "$(folder-add)"
+            },
+            {
+                "command": "antigravity-unity.explorerRename",
+                "title": "Rename",
+                "category": "Unity Explorer",
+                "icon": "$(edit)"
+            },
+            {
+                "command": "antigravity-unity.explorerDelete",
+                "title": "Delete",
+                "category": "Unity Explorer",
+                "icon": "$(trash)"
+            },
+            {
+                "command": "antigravity-unity.explorerDuplicate",
+                "title": "Duplicate",
+                "category": "Unity Explorer",
+                "icon": "$(files)"
+            },
+            {
+                "command": "antigravity-unity.explorerCopyPath",
+                "title": "Copy Path",
+                "category": "Unity Explorer",
+                "icon": "$(copy)"
+            },
+            {
+                "command": "antigravity-unity.explorerCopyRelativePath",
+                "title": "Copy Relative Path",
+                "category": "Unity Explorer"
+            },
+            {
+                "command": "antigravity-unity.explorerRevealInOS",
+                "title": "Reveal in File Explorer",
+                "category": "Unity Explorer"
+            },
+            {
+                "command": "antigravity-unity.explorerOpenToSide",
+                "title": "Open to the Side",
+                "category": "Unity Explorer"
             }
         ],
+        "views": {
+            "explorer": [
+                {
+                    "id": "antigravity-unity.unityExplorer",
+                    "name": "Unity Explorer",
+                    "when": "antigravity-unity.isUnityProject"
+                },
+                {
+                    "id": "antigravity-unity.variableInspector",
+                    "name": "Inspect Variables"
+                }
+            ]
+        },
+        "menus": {
+            "editor/context": [
+                {
+                    "when": "resourceLangId == csharp && inDebugMode",
+                    "command": "antigravity-unity.evaluateExpression",
+                    "group": "debug@1"
+                },
+                {
+                    "when": "resourceLangId == csharp",
+                    "command": "antigravity-unity.findUsagesInAssets",
+                    "group": "navigation"
+                }
+            ],
+            "view/title": [
+                {
+                    "command": "antigravity-unity.addWatchVariable",
+                    "when": "view == antigravity-unity.variableInspector",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "antigravity-unity.refreshVariableInspector",
+                    "when": "view == antigravity-unity.variableInspector",
+                    "group": "navigation@2"
+                },
+                {
+                    "command": "antigravity-unity.revealActiveFileInUnityExplorer",
+                    "when": "view == antigravity-unity.unityExplorer",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "antigravity-unity.expandAllUnityExplorer",
+                    "when": "view == antigravity-unity.unityExplorer",
+                    "group": "navigation@2"
+                },
+                {
+                    "command": "antigravity-unity.refreshUnityExplorer",
+                    "when": "view == antigravity-unity.unityExplorer",
+                    "group": "navigation@3"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "antigravity-unity.editVariableValue",
+                    "when": "view == antigravity-unity.variableInspector",
+                    "group": "inline"
+                },
+                {
+                    "command": "antigravity-unity.removeWatchVariable",
+                    "when": "view == antigravity-unity.variableInspector",
+                    "group": "inline"
+                },
+                {
+                    "command": "antigravity-unity.explorerNewFile",
+                    "when": "view == antigravity-unity.unityExplorer && (viewItem == unityAssetsRoot || viewItem == unityPackagesRoot || viewItem == unityDirectory || viewItem == unityFile)",
+                    "group": "1_new@1"
+                },
+                {
+                    "command": "antigravity-unity.explorerNewFolder",
+                    "when": "view == antigravity-unity.unityExplorer && (viewItem == unityAssetsRoot || viewItem == unityPackagesRoot || viewItem == unityDirectory || viewItem == unityFile)",
+                    "group": "1_new@2"
+                },
+                {
+                    "command": "antigravity-unity.explorerOpenToSide",
+                    "when": "view == antigravity-unity.unityExplorer && (viewItem == unityFile || viewItem == unityReadOnly)",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "antigravity-unity.explorerDuplicate",
+                    "when": "view == antigravity-unity.unityExplorer && (viewItem == unityDirectory || viewItem == unityFile)",
+                    "group": "5_cutcopypaste@1"
+                },
+                {
+                    "command": "antigravity-unity.explorerCopyPath",
+                    "when": "view == antigravity-unity.unityExplorer",
+                    "group": "6_copypath@1"
+                },
+                {
+                    "command": "antigravity-unity.explorerCopyRelativePath",
+                    "when": "view == antigravity-unity.unityExplorer",
+                    "group": "6_copypath@2"
+                },
+                {
+                    "command": "antigravity-unity.explorerRename",
+                    "when": "view == antigravity-unity.unityExplorer && (viewItem == unityDirectory || viewItem == unityFile)",
+                    "group": "7_modification@1"
+                },
+                {
+                    "command": "antigravity-unity.explorerDelete",
+                    "when": "view == antigravity-unity.unityExplorer && (viewItem == unityDirectory || viewItem == unityFile)",
+                    "group": "7_modification@2"
+                },
+                {
+                    "command": "antigravity-unity.explorerRevealInOS",
+                    "when": "view == antigravity-unity.unityExplorer",
+                    "group": "8_workspace@1"
+                }
+            ]
+        },
         "breakpoints": [
             {
                 "language": "csharp"
@@ -164,12 +376,44 @@
                 "language": "csharp",
                 "path": "./snippets/unity-csharp.json"
             }
+        ],
+        "configurationDefaults": {
+            "[csharp]": {
+                "editor.formatOnType": true,
+                "editor.formatOnSave": true,
+                "editor.formatOnPaste": true
+            }
+        },
+        "configuration": {
+            "title": "Antigravity Unity",
+            "properties": {
+                "antigravity.enableCodeLens": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable/disable reference and asset usage count CodeLens indicators above C# declarations."
+                },
+                "antigravity.debugPort": {
+                    "type": "integer",
+                    "default": 56000,
+                    "description": "The TCP port used to communicate with the running Unity Editor process."
+                }
+            }
+        },
+        "debuggers": [
+            {
+                "type": "unity",
+                "label": "Unity Debugger",
+                "languages": [
+                    "csharp"
+                ]
+            }
         ]
     },
     "scripts": {
         "compile": "tsc -p ./",
         "watch": "tsc -watch -p ./",
-        "lint": "eslint src --ext ts"
+        "lint": "eslint src --ext ts",
+        "package": "npx @vscode/vsce package"
     },
     "devDependencies": {
         "@types/node": "^18.0.0",

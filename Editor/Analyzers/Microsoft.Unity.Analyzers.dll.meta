@@ -1,0 +1,28 @@
+fileFormatVersion: 2
+guid: f74b29a081a14c35b80927c771fa0002
+labels:
+- RoslynAnalyzer
+PluginImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  iconMap: {}
+  executionOrder: {}
+  defineConstraints: []
+  isPreloaded: 0
+  isAutoReferenced: 0
+  validateReferences: 1
+  platformData:
+  - first:
+      Any: 
+    second:
+      enabled: 0
+      settings: {}
+  - first:
+      Editor: Editor
+    second:
+      enabled: 0
+      settings:
+        DefaultValue: false
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

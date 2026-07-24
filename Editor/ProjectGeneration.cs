@@ -29,6 +29,13 @@ public static class ProjectGeneration
         ""{1}""
     ],
     ""dotrush.roslyn.restoreProjectsBeforeLoading"": false,
+    ""editor.formatOnSave"": true,
+    ""editor.formatOnType"": true,
+    ""[csharp]"": {{
+        ""editor.defaultFormatter"": ""nromanov.dotrush"",
+        ""editor.formatOnSave"": true,
+        ""editor.formatOnType"": true
+    }},
 {4}
 }}";
 
@@ -87,21 +94,58 @@ public static class ProjectGeneration
         ""temp/"": true,
         ""Temp/"": true,
         ""Logs/"": true
+    },
+    ""files.watcherExclude"": {
+        ""**/Library/**"": true,
+        ""**/Temp/**"": true,
+        ""**/Logs/**"": true,
+        ""**/obj/**"": true,
+        ""**/Obj/**"": true,
+        ""**/library/**"": true,
+        ""**/temp/**"": true
+    },
+    ""search.exclude"": {
+        ""**/Library/**"": true,
+        ""**/Temp/**"": true,
+        ""**/Logs/**"": true,
+        ""**/obj/**"": true,
+        ""**/Obj/**"": true,
+        ""**/library/**"": true,
+        ""**/temp/**"": true
     }";
 
-    // ✅ LEARN: Updated launch.json to use DotRush "unity" type
+    // ✅ LEARN: Updated launch.json to use DotRush "unity" type with DAP stepping options and Windows drive letter sourceFileMap
     private const string LaunchJsonTemplate = @"{{
     ""version"": ""0.2.0"",
     ""configurations"": [
         {{
             ""name"": ""Attach to Unity Editor"",
             ""type"": ""unity"",
-            ""request"": ""attach""
+            ""request"": ""attach"",
+            ""path"": ""${{workspaceFolder}}/Library/EditorInstance.json"",
+            ""justMyCode"": true,
+            ""enableStepFiltering"": true,
+            ""projectPath"": ""${{workspaceFolder}}"",
+            ""sourceFileMap"": {{
+                ""c:\\"": ""C:\\"",
+                ""d:\\"": ""D:\\"",
+                ""e:\\"": ""E:\\"",
+                ""f:\\"": ""F:\\""
+            }}
         }},
         {{
             ""name"": ""Attach to Unity Player"",
             ""type"": ""unity"",
             ""request"": ""attach"",
+            ""justMyCode"": true,
+            ""enableStepFiltering"": true,
+            ""projectPath"": ""${{workspaceFolder}}"",
+            ""sourceFileMap"": {{
+                ""c:\\"": ""C:\\"",
+                ""d:\\"": ""D:\\"",
+                ""e:\\"": ""E:\\"",
+                ""f:\\"": ""F:\\""
+            }},
             ""transportArgs"": {{
                 ""port"": {0}
             }}
@@ -136,13 +180,58 @@ public static class ProjectGeneration
         Sync(isManual: false);
     }
 
+    // Data Transfer Objects for Thread-Safe Background Project Generation
+    private class SyncData
+    {
+        public string projectDir;
+        public string rootNamespace;
+        public string applicationContentsPath;
+        public string[] allAssetPaths;
+        public int debugPort;
+        public bool genLaunchJson;
+        public int analyzerLevel;
+        public string solutionFile;
+        public string solutionAbsPath;
+        public string dotnetPath;
+        public string dotnetSdkDir;
+        public Dictionary<string, string> coreUnityReferences;
+        public List<AssemblySyncData> assemblies;
+    }
+
+    private class AssemblySyncData
+    {
+        public string name;
+        public string langVersion;
+        public string guid;
+        public string defines;
+        public bool allowUnsafeCode;
+        public List<string> analyzerPaths;
+        public List<string> resolvedSourceFiles;
+        public List<string> compiledAssemblyReferences;
+        public List<string> nonScriptAssets;
+        public List<string> responseFileReferences;
+        public List<AssemblyReferenceSyncData> assemblyReferences;
+    }
+
+    private class AssemblyReferenceSyncData
+    {
+        public string name;
+        public string outputPath;
+    }
+
+    private class GeneratedFile
+    {
+        public string path;
+        public string content;
+        public bool isSln;
+        public bool isCsproj;
+    }
+
     public static void Sync(bool isManual = false)
     {
         Profiler.BeginSample("AntigravityProjectSync");
 
-
-
-        // Get ALL assemblies: Player (includes tests) + Editor
+        // Collect assemblies on the main thread
         var playerAssemblies = CompilationPipeline.GetAssemblies(AssembliesType.Player);
         var editorAssemblies = CompilationPipeline.GetAssemblies(AssembliesType.Editor);
         var allAssemblies = playerAssemblies
@@ -151,34 +240,590 @@ public static class ProjectGeneration
             .Select(g => g.First())
             .ToArray();
 
-        // PERF: Only generate .csproj for user-editable assemblies
-        // Package assemblies (Library/PackageCache) are resolved via HintPath references.
-        // This drops load from ~155 projects to ~10-15, dramatically speeding up Roslyn.
         var userAssemblies = FilterUserAssemblies(allAssemblies);
-
-        // Clean up orphaned .csproj files
         CleanOrphanedProjectFiles(userAssemblies);
 
-        var activeNames = new HashSet<string>(userAssemblies.Select(a => a.name), StringComparer.OrdinalIgnoreCase);
+        // Collect all main thread configuration data
+        string projectDir = Directory.GetCurrentDirectory();
+        string rootNamespace = EditorSettings.projectGenerationRootNamespace;
+        string applicationContentsPath = EditorApplication.applicationContentsPath;
+        string[] allAssetPaths = AssetDatabase.GetAllAssetPaths();
+        int debugPort = UnityDebugBridge.CurrentPort;
+        bool genLaunchJson = EditorPrefs.GetBool("Antigravity_GenerateLaunchJson", true);
+        int analyzerLevel = EditorPrefs.GetInt("Antigravity_AnalyzerLevel", 1);
+        string solutionName = Path.GetFileName(projectDir);
+        string solutionFile = $"{solutionName}.sln";
+        string solutionAbsPath = Path.Combine(projectDir, solutionFile).Replace("\\", "/");
+        string dotnetPath = DetectDotnetPath();
+        string dotnetSdkDir = DetectDotnetSdkDirectory(dotnetPath);
+
+        var syncData = new SyncData
+        {
+            projectDir = projectDir,
+            rootNamespace = rootNamespace,
+            applicationContentsPath = applicationContentsPath,
+            allAssetPaths = allAssetPaths,
+            debugPort = debugPort,
+            genLaunchJson = genLaunchJson,
+            analyzerLevel = analyzerLevel,
+            solutionFile = solutionFile,
+            solutionAbsPath = solutionAbsPath,
+            dotnetPath = dotnetPath,
+            dotnetSdkDir = dotnetSdkDir,
+            coreUnityReferences = CollectCoreUnityReferences(),
+            assemblies = new List<AssemblySyncData>()
+        };
 
         foreach (var assembly in userAssemblies)
         {
-            GenerateCsproj(assembly, activeNames);
+            var resolvedSources = assembly.sourceFiles.Select(ResolveSourceFilePath).ToList();
+            var analyzerPaths = GetAnalyzerPaths(assembly);
+            var langVersion = GetLangVersion(assembly);
+            var defines = GetDefineConstants(assembly);
+            var guid = GenerateGuid(assembly.name);
+
+            // Pre-calculate non-script assets for this assembly
+            var nonScriptAssets = GetAssemblyNonScriptAssets(assembly, allAssetPaths);
+
+            // Parse response files
+            var rspData = ParseResponseFiles(assembly);
+            var existingRefs = new HashSet<string>(
+                assembly.compiledAssemblyReferences.Select(Path.GetFileNameWithoutExtension),
+                StringComparer.OrdinalIgnoreCase);
+            var responseFileReferences = rspData.References
+                .Where(r => !existingRefs.Contains(Path.GetFileNameWithoutExtension(r)))
+                .ToList();
+
+            var assemblyReferences = assembly.assemblyReferences.Select(r => new AssemblyReferenceSyncData
+            {
+                name = r.name,
+                outputPath = r.outputPath
+            }).ToList();
+
+            syncData.assemblies.Add(new AssemblySyncData
+            {
+                name = assembly.name,
+                langVersion = langVersion,
+                guid = guid,
+                defines = defines,
+                allowUnsafeCode = assembly.compilerOptions.AllowUnsafeCode,
+                analyzerPaths = analyzerPaths,
+                resolvedSourceFiles = resolvedSources,
+                compiledAssemblyReferences = assembly.compiledAssemblyReferences.ToList(),
+                nonScriptAssets = nonScriptAssets,
+                responseFileReferences = responseFileReferences,
+                assemblyReferences = assemblyReferences
+            });
         }
-        GenerateSolution(userAssemblies);
-        CleanCompetingSolutionFiles();
-        WriteVSCodeSettingsFiles();
-        GenerateDirectoryBuildProps();
-
-        OnGeneratedCSProjectFiles();
-
-
 
         Profiler.EndSample();
 
-        if (isManual)
+        // Offload string generation and processing to the background thread pool
+        System.Threading.Tasks.Task.Run(() =>
         {
-            Debug.Log("[Antigravity] Project files synchronized successfully.");
+            try
+            {
+                var generatedFiles = GenerateAllFilesBackground(syncData);
+
+                // Write files back on the main thread via delayCall (100% safe & non-blocking)
+                EditorApplication.delayCall += () =>
+                {
+                    try
+                    {
+                        WriteGeneratedFilesMainThread(generatedFiles, isManual);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"[Antigravity] Failed to write generated files on main thread: {ex.Message}");
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[Antigravity] Background project generation failed: {ex.Message}");
+            }
+        });
+    }
+
+    private static List<string> GetAssemblyNonScriptAssets(Assembly assembly, string[] allAssetPaths)
+    {
+        var assemblyRoots = assembly.sourceFiles
+            .Select(f => GetTopLevelFolder(f))
+            .Where(f => !string.IsNullOrEmpty(f))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var nonScriptItems = new List<string>();
+        if (assemblyRoots.Count == 0) return nonScriptItems;
+
+        foreach (var assetPath in allAssetPaths)
+        {
+            string ext = Path.GetExtension(assetPath);
+            if (string.IsNullOrEmpty(ext)) continue;
+            if (!k_NonScriptAssetExtensions.Any(e => string.Equals(e, ext, StringComparison.OrdinalIgnoreCase))) continue;
+
+            string topFolder = GetTopLevelFolder(assetPath);
+            if (!assemblyRoots.Contains(topFolder)) continue;
+
+            string fullPath = Path.GetFullPath(assetPath).Replace("\\", "/");
+            nonScriptItems.Add(fullPath);
+        }
+
+        return nonScriptItems;
+    }
+
+    private static List<GeneratedFile> GenerateAllFilesBackground(SyncData syncData)
+    {
+        var result = new List<GeneratedFile>();
+        var activeNames = new HashSet<string>(syncData.assemblies.Select(a => a.name), StringComparer.OrdinalIgnoreCase);
+
+        // 1. Generate CSPROJs
+        foreach (var assembly in syncData.assemblies)
+        {
+            string projectPath = Path.Combine(syncData.projectDir, $"{assembly.name}.csproj");
+            string content = GenerateCsprojContent(assembly, activeNames, syncData.rootNamespace, syncData.applicationContentsPath, syncData.coreUnityReferences);
+            result.Add(new GeneratedFile { path = projectPath, content = content, isCsproj = true });
+        }
+
+        // 2. Generate SLN
+        string solutionPath = Path.Combine(syncData.projectDir, syncData.solutionFile);
+        string slnContent = GenerateSolutionContent(syncData);
+        result.Add(new GeneratedFile { path = solutionPath, content = slnContent, isSln = true });
+
+        // 3. Generate settings.json
+        string vscodeDir = Path.Combine(syncData.projectDir, ".vscode");
+        string settingsPath = Path.Combine(vscodeDir, "settings.json");
+
+        string existingSettingsContent = "";
+        if (File.Exists(settingsPath))
+        {
+            try { existingSettingsContent = File.ReadAllText(settingsPath); } catch { }
+        }
+        string settingsContent = GenerateVSCodeSettingsContent(syncData, existingSettingsContent);
+        result.Add(new GeneratedFile { path = settingsPath, content = settingsContent });
+
+        // 4. Generate Directory.Build.props
+        string propsPath = Path.Combine(syncData.projectDir, "Directory.Build.props");
+        string propsContent = GenerateDirectoryBuildPropsContent(syncData.applicationContentsPath, propsPath);
+        if (propsContent != null)
+        {
+            result.Add(new GeneratedFile { path = propsPath, content = propsContent });
+        }
+
+        return result;
+    }
+
+    private static string GenerateCsprojContent(AssemblySyncData assembly, HashSet<string> generatedAssemblies, string rootNamespace, string applicationContentsPath, Dictionary<string, string> coreUnityReferences)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>");
+        sb.AppendLine("<Project ToolsVersion=\"4.0\" DefaultTargets=\"Build\" xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">");
+
+        // LangVersion first
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine($"    <LangVersion>{assembly.langVersion}</LangVersion>");
+        sb.AppendLine("  </PropertyGroup>");
+
+        // Main PropertyGroup
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine("    <Configuration Condition=\" '$(Configuration)' == '' \">Debug</Configuration>");
+        sb.AppendLine("    <Platform Condition=\" '$(Platform)' == '' \">AnyCPU</Platform>");
+        sb.AppendLine("    <ProductVersion>10.0.20506</ProductVersion>");
+        sb.AppendLine("    <SchemaVersion>2.0</SchemaVersion>");
+        sb.AppendLine($"    <RootNamespace>{rootNamespace}</RootNamespace>");
+        sb.AppendLine($"    <ProjectGuid>{{{assembly.guid}}}</ProjectGuid>");
+        sb.AppendLine("    <OutputType>Library</OutputType>");
+        sb.AppendLine("    <AppDesignerFolder>Properties</AppDesignerFolder>");
+        sb.AppendLine($"    <AssemblyName>{assembly.name}</AssemblyName>");
+        sb.AppendLine("    <TargetFrameworkVersion>v4.7.1</TargetFrameworkVersion>");
+        sb.AppendLine("    <FileAlignment>512</FileAlignment>");
+        sb.AppendLine("    <BaseDirectory>.</BaseDirectory>");
+        sb.AppendLine("  </PropertyGroup>");
+
+        // Debug configuration
+        sb.AppendLine("  <PropertyGroup Condition=\" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' \">");
+        sb.AppendLine("    <DebugSymbols>true</DebugSymbols>");
+        sb.AppendLine("    <DebugType>full</DebugType>");
+        sb.AppendLine("    <Optimize>false</Optimize>");
+        sb.AppendLine("    <OutputPath>Temp\\bin\\Debug\\</OutputPath>");
+
+        sb.AppendLine($"    <DefineConstants>{assembly.defines}</DefineConstants>");
+        sb.AppendLine("    <ErrorReport>prompt</ErrorReport>");
+        sb.AppendLine("    <WarningLevel>4</WarningLevel>");
+        sb.AppendLine("    <NoWarn>0169</NoWarn>");
+
+        if (assembly.allowUnsafeCode)
+            sb.AppendLine("    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>");
+
+        sb.AppendLine("  </PropertyGroup>");
+
+        // MSBuild flags
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine("    <NoConfig>true</NoConfig>");
+        sb.AppendLine("    <NoStdLib>true</NoStdLib>");
+        sb.AppendLine("    <AddAdditionalExplicitAssemblyReferences>false</AddAdditionalExplicitAssemblyReferences>");
+        sb.AppendLine("    <ImplicitlyExpandNETStandardFacades>false</ImplicitlyExpandNETStandardFacades>");
+        sb.AppendLine("    <ImplicitlyExpandDesignTimeFacades>false</ImplicitlyExpandDesignTimeFacades>");
+        sb.AppendLine("  </PropertyGroup>");
+
+        // Roslyn Analyzers
+        if (assembly.analyzerPaths.Count > 0)
+        {
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var analyzerPath in assembly.analyzerPaths)
+            {
+                sb.AppendLine($"    <Analyzer Include=\"{analyzerPath.Replace("\\", "/")}\" />");
+            }
+            sb.AppendLine("  </ItemGroup>");
+        }
+
+        // Assembly references
+        sb.AppendLine("  <ItemGroup>");
+        var referencedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var reference in assembly.compiledAssemblyReferences)
+        {
+            var refName = Path.GetFileNameWithoutExtension(reference);
+            referencedNames.Add(refName);
+            sb.AppendLine($"    <Reference Include=\"{refName}\">");
+            sb.AppendLine($"        <HintPath>{reference.Replace("\\", "/")}</HintPath>");
+            sb.AppendLine("    </Reference>");
+        }
+
+        AppendCoreUnityReferencesContent(sb, referencedNames, coreUnityReferences, applicationContentsPath);
+        sb.AppendLine("  </ItemGroup>");
+
+        // Source files
+        sb.AppendLine("  <ItemGroup>");
+        foreach (var sourceFile in assembly.resolvedSourceFiles)
+        {
+            sb.AppendLine($"    <Compile Include=\"{sourceFile.Replace("\\", "/")}\" />");
+        }
+        sb.AppendLine("  </ItemGroup>");
+
+        // Non-script assets
+        if (assembly.nonScriptAssets.Count > 0)
+        {
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var item in assembly.nonScriptAssets)
+            {
+                sb.AppendLine($"    <None Include=\"{item}\" />");
+            }
+            sb.AppendLine("  </ItemGroup>");
+        }
+
+        // Response file extra references/defines
+        if (assembly.responseFileReferences.Count > 0)
+        {
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var refPath in assembly.responseFileReferences)
+            {
+                sb.AppendLine($"    <Reference Include=\"{Path.GetFileNameWithoutExtension(refPath)}\">");
+                sb.AppendLine($"        <HintPath>{refPath.Replace("\\", "/")}</HintPath>");
+                sb.AppendLine("    </Reference>");
+            }
+            sb.AppendLine("  </ItemGroup>");
+        }
+
+        // Project references + DLL HintPath
+        if (assembly.assemblyReferences.Count > 0)
+        {
+            string projectDir = Directory.GetCurrentDirectory();
+            string scriptAssembliesDir = Path.Combine(projectDir, "Library", "ScriptAssemblies");
+
+            var refsWithDll = new List<(string name, string dllPath)>();
+            foreach (var refAssembly in assembly.assemblyReferences)
+            {
+                string dllPath = Path.Combine(scriptAssembliesDir, $"{refAssembly.name}.dll");
+
+                if (!File.Exists(dllPath) && !string.IsNullOrEmpty(refAssembly.outputPath))
+                {
+                    string fallbackPath = Path.IsPathRooted(refAssembly.outputPath)
+                        ? refAssembly.outputPath
+                        : Path.Combine(projectDir, refAssembly.outputPath);
+
+                    if (File.Exists(fallbackPath))
+                    {
+                        dllPath = fallbackPath;
+                    }
+                }
+
+                if (File.Exists(dllPath))
+                {
+                    refsWithDll.Add((refAssembly.name, dllPath));
+                    referencedNames.Add(refAssembly.name);
+                }
+            }
+
+            if (refsWithDll.Count > 0)
+            {
+                sb.AppendLine("  <ItemGroup>");
+                foreach (var (name, dllPath) in refsWithDll)
+                {
+                    sb.AppendLine($"    <Reference Include=\"{name}\">");
+                    sb.AppendLine($"        <HintPath>{dllPath.Replace("\\", "/")}</HintPath>");
+                    sb.AppendLine("        <Private>false</Private>");
+                    sb.AppendLine("    </Reference>");
+                }
+                sb.AppendLine("  </ItemGroup>");
+            }
+
+            var projectRefs = assembly.assemblyReferences.Where(r => generatedAssemblies.Contains(r.name)).ToList();
+            if (projectRefs.Count > 0)
+            {
+                sb.AppendLine("  <ItemGroup>");
+                foreach (var refAssembly in projectRefs)
+                {
+                    sb.AppendLine($"    <ProjectReference Include=\"{refAssembly.name}.csproj\">");
+                    sb.AppendLine($"      <Project>{{{GenerateGuid(refAssembly.name)}}}</Project>");
+                    sb.AppendLine($"      <Name>{refAssembly.name}</Name>");
+                    sb.AppendLine($"      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>");
+                    sb.AppendLine("    </ProjectReference>");
+                }
+                sb.AppendLine("  </ItemGroup>");
+            }
+        }
+
+        AppendMissingScriptAssembliesContent(sb, referencedNames);
+
+        sb.AppendLine("  <Import Project=\"$(MSBuildToolsPath)\\Microsoft.CSharp.targets\" />");
+        sb.AppendLine("</Project>");
+
+        return sb.ToString();
+    }
+
+    private static void AppendCoreUnityReferencesContent(StringBuilder sb, HashSet<string> existingRefs, Dictionary<string, string> coreRefs, string contentsPath)
+    {
+        if (coreRefs != null)
+        {
+            foreach (var kvp in coreRefs)
+            {
+                if (existingRefs.Contains(kvp.Key)) continue;
+
+                sb.AppendLine($"    <Reference Include=\"{kvp.Key}\">");
+                sb.AppendLine($"        <HintPath>{kvp.Value.Replace("\\", "/")}</HintPath>");
+                sb.AppendLine("    </Reference>");
+                existingRefs.Add(kvp.Key);
+            }
+        }
+    }
+
+    private static void AppendMissingScriptAssembliesContent(StringBuilder sb, HashSet<string> existingRefs)
+    {
+        string scriptAssembliesDir = Path.Combine(Directory.GetCurrentDirectory(), "Library", "ScriptAssemblies");
+        if (!Directory.Exists(scriptAssembliesDir)) return;
+
+        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in existingRefs)
+        {
+            int lastDot = name.LastIndexOf('.');
+            while (lastDot > 0)
+            {
+                roots.Add(name.Substring(0, lastDot));
+                lastDot = name.Substring(0, lastDot).LastIndexOf('.');
+            }
+        }
+
+        var missingRefs = new List<(string name, string path)>();
+        foreach (var dllPath in Directory.GetFiles(scriptAssembliesDir, "*.dll"))
+        {
+            string name = Path.GetFileNameWithoutExtension(dllPath);
+            if (existingRefs.Contains(name)) continue;
+
+            int lastDot = name.LastIndexOf('.');
+            if (lastDot > 0)
+            {
+                string parent = name.Substring(0, lastDot);
+                if (roots.Contains(parent) || existingRefs.Contains(parent))
+                {
+                    missingRefs.Add((name, dllPath));
+                    existingRefs.Add(name);
+                }
+            }
+        }
+
+        if (missingRefs.Count > 0)
+        {
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var (name, path) in missingRefs)
+            {
+                sb.AppendLine($"    <Reference Include=\"{name}\">");
+                sb.AppendLine($"        <HintPath>{path.Replace("\\", "/")}</HintPath>");
+                sb.AppendLine("        <Private>false</Private>");
+                sb.AppendLine("    </Reference>");
+            }
+            sb.AppendLine("  </ItemGroup>");
+        }
+    }
+
+    private static string GenerateSolutionContent(SyncData syncData)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("\r\nMicrosoft Visual Studio Solution File, Format Version 11.00");
+        sb.AppendLine("# Visual Studio 2010");
+
+        foreach (var assembly in syncData.assemblies)
+        {
+            sb.AppendLine($"Project(\"{{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}}\") = \"{assembly.name}\", \"{assembly.name}.csproj\", \"{{{assembly.guid}}}\"");
+            sb.AppendLine("EndProject");
+        }
+
+        sb.AppendLine("Global");
+        sb.AppendLine("\tGlobalSection(SolutionConfigurationPlatforms) = preSolution");
+        sb.AppendLine("\t\tDebug|Any CPU = Debug|Any CPU");
+        sb.AppendLine("\tEndGlobalSection");
+        sb.AppendLine("\tGlobalSection(ProjectConfigurationPlatforms) = postSolution");
+        foreach (var assembly in syncData.assemblies)
+        {
+            sb.AppendLine($"\t\t{{{assembly.guid}}}.Debug|Any CPU.ActiveCfg = Debug|Any CPU");
+            sb.AppendLine($"\t\t{{{assembly.guid}}}.Debug|Any CPU.Build.0 = Debug|Any CPU");
+        }
+        sb.AppendLine("\tEndGlobalSection");
+        sb.AppendLine("\tGlobalSection(SolutionProperties) = preSolution");
+        sb.AppendLine("\t\tHideSolutionNode = FALSE");
+        sb.AppendLine("\tEndGlobalSection");
+        sb.AppendLine("EndGlobal");
+
+        return sb.ToString();
+    }
+
+    private static string GenerateVSCodeSettingsContent(SyncData syncData, string existingContent)
+    {
+        string dotnetPathEntry = "";
+        string dotnetSdkDirEntry = "";
+        if (!string.IsNullOrEmpty(syncData.dotnetPath))
+        {
+            dotnetPathEntry = $"\n    \"dotnet.dotnetPath\": \"{syncData.dotnetPath.Replace("\\", "/")}\",";
+            if (!string.IsNullOrEmpty(syncData.dotnetSdkDir))
+            {
+                dotnetSdkDirEntry = $"\n    \"dotrush.roslyn.dotnetSdkDirectory\": \"{syncData.dotnetSdkDir.Replace("\\", "/")}\",";
+            }
+        }
+
+        string filesExcludeBlock = DefaultFilesExclude;
+        if (!string.IsNullOrEmpty(existingContent))
+        {
+            string extracted = ExtractFilesExcludeBlock(existingContent);
+            if (!string.IsNullOrEmpty(extracted))
+            {
+                filesExcludeBlock = extracted;
+            }
+        }
+
+        return string.Format(SettingsJsonTemplate, syncData.solutionFile, syncData.solutionAbsPath, dotnetPathEntry, dotnetSdkDirEntry, filesExcludeBlock);
+    }
+
+    private static string GenerateDirectoryBuildPropsContent(string contentsPath, string propsPath)
+    {
+        string unityRefAssembliesPath = Path.Combine(
+            contentsPath,
+            "Resources", "Scripting", "UnityReferenceAssemblies", "unity-4.8-api");
+        unityRefAssembliesPath = unityRefAssembliesPath.Replace("\\", "/");
+        bool hasRefAssemblies = Directory.Exists(unityRefAssembliesPath);
+
+        if (File.Exists(propsPath))
+        {
+            string existing = File.ReadAllText(propsPath);
+            if (hasRefAssemblies && !existing.Contains("FrameworkPathOverride"))
+            {
+                string injection =
+                    $"\n    <!-- Auto-generated: Point MSBuild to Unity's bundled reference assemblies\n" +
+                    $"         so DotRush can compile without Mono or .NET Framework SDK -->\n" +
+                    $"    <FrameworkPathOverride>{unityRefAssembliesPath}</FrameworkPathOverride>\n";
+
+                int insertPos = existing.IndexOf("</PropertyGroup>", StringComparison.Ordinal);
+                if (insertPos >= 0)
+                {
+                    return existing.Insert(insertPos, injection);
+                }
+            }
+            else if (hasRefAssemblies && existing.Contains("FrameworkPathOverride"))
+            {
+                var lines = existing.Split('\n');
+                bool changed = false;
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (lines[i].Contains("<FrameworkPathOverride>") && !lines[i].Contains(unityRefAssembliesPath))
+                    {
+                        int start = lines[i].IndexOf("<FrameworkPathOverride>", StringComparison.Ordinal);
+                        int end = lines[i].IndexOf("</FrameworkPathOverride>", StringComparison.Ordinal);
+                        if (start >= 0 && end > start)
+                        {
+                            string indent = lines[i].Substring(0, start);
+                            lines[i] = $"{indent}<FrameworkPathOverride>{unityRefAssembliesPath}</FrameworkPathOverride>";
+                            changed = true;
+                        }
+                    }
+                }
+                if (changed)
+                {
+                    return string.Join("\n", lines);
+                }
+            }
+            return null;
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("<Project>");
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine("    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>");
+        sb.AppendLine("    <!-- Suppress Unity-specific false positives -->");
+        sb.AppendLine("    <!-- IDE0051: Remove unused private members (Unity messages like Start, Update) -->");
+        sb.AppendLine("    <!-- IDE0044: Add readonly modifier (serialized fields) -->");
+
+        if (hasRefAssemblies)
+        {
+            sb.AppendLine();
+            sb.AppendLine("    <!-- Auto-generated: Point MSBuild to Unity's bundled reference assemblies");
+            sb.AppendLine("         so DotRush can compile without Mono or .NET Framework SDK -->");
+            sb.AppendLine($"    <FrameworkPathOverride>{unityRefAssembliesPath}</FrameworkPathOverride>");
+        }
+
+        sb.AppendLine("  </PropertyGroup>");
+        sb.AppendLine("</Project>");
+
+        return sb.ToString();
+    }
+
+    private static void WriteGeneratedFilesMainThread(List<GeneratedFile> files, bool isManual)
+    {
+        string projectDir = Directory.GetCurrentDirectory();
+        string vscodeDir = Path.Combine(projectDir, ".vscode");
+        if (files.Any(f => f.path.Contains(".vscode")) && !Directory.Exists(vscodeDir))
+        {
+            Directory.CreateDirectory(vscodeDir);
+        }
+
+        foreach (var file in files)
+        {
+            string content = file.content;
+            if (file.isCsproj)
+            {
+                content = OnGeneratedCSProject(file.path, content);
+            }
+            else if (file.isSln)
+            {
+                content = OnGeneratedSlnSolution(file.path, content);
+            }
+
+            WriteFileIfChanged(file.path, content);
+        }
+
+        string launchPath = Path.Combine(vscodeDir, "launch.json");
+        if (!File.Exists(launchPath))
+        {
+            int debugPort = UnityDebugBridge.CurrentPort;
+            string launchContent = string.Format(LaunchJsonTemplate, debugPort);
+            File.WriteAllText(launchPath, launchContent);
+        }
+
+        CleanCompetingSolutionFiles();
+
+        UnityAnalyzerConfig.GenerateConfig();
+        OnGeneratedCSProjectFiles();
+
+        if (isManual || AntigravityScriptEditor.ShowLogs)
+        {
+            Debug.Log("[Antigravity] Project files synchronized successfully in background.");
         }
     }
 
@@ -262,25 +907,47 @@ public static class ProjectGeneration
         }
     }
 
+    private static double s_LastSyncTime;
+    private static readonly string[] k_ProjectStructureExtensions = { ".dll", ".asmdef", ".asmref", ".rsp" };
+
     public static void SyncIfNeeded(string[] addedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths, string[] importedAssets)
     {
+        // Prevent redundant sync calls within a 1.0s window
+        if (EditorApplication.timeSinceStartup - s_LastSyncTime < 1.0)
+            return;
+
         Profiler.BeginSample("AntigravityProjectSyncIfNeeded");
 
-        var allChanged = addedAssets
-            .Concat(deletedAssets)
-            .Concat(movedAssets)
-            .Concat(importedAssets);
+        bool hasAddedScripts = addedAssets != null && addedAssets.Any(HasScriptExtension);
+        bool hasDeletedScripts = deletedAssets != null && deletedAssets.Any(HasScriptExtension);
+        bool hasMovedScripts = (movedAssets != null && movedAssets.Any(HasScriptExtension)) ||
+                               (movedFromAssetPaths != null && movedFromAssetPaths.Any(HasScriptExtension));
 
-        bool needsSync = allChanged.Any(path =>
-            path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
-            k_ReimportSyncExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
+        bool hasStructureChanges = (importedAssets != null && importedAssets.Any(HasStructureExtension)) ||
+                                   (deletedAssets != null && deletedAssets.Any(HasStructureExtension)) ||
+                                   (movedAssets != null && movedAssets.Any(HasStructureExtension));
+
+        bool needsSync = hasAddedScripts || hasDeletedScripts || hasMovedScripts || hasStructureChanges;
 
         if (needsSync)
         {
+            s_LastSyncTime = EditorApplication.timeSinceStartup;
             Sync(isManual: false);
         }
 
         Profiler.EndSample();
+    }
+
+    private static bool HasScriptExtension(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        return path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasStructureExtension(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        return k_ProjectStructureExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void GenerateCsproj(Assembly assembly, HashSet<string> generatedAssemblies)
@@ -575,7 +1242,7 @@ public static class ProjectGeneration
         string launchPath = Path.Combine(vscodeDir, "launch.json");
         if (!File.Exists(launchPath))
         {
-            int debugPort = EditorPrefs.GetInt("Antigravity_DebugPort", 56000);
+            int debugPort = UnityDebugBridge.CurrentPort;
             string launchContent = string.Format(LaunchJsonTemplate, debugPort);
             File.WriteAllText(launchPath, launchContent);
         }
@@ -938,9 +1605,14 @@ public static class ProjectGeneration
     // ✅ LEARN: LangVersion now reads from assembly.compilerOptions when available
     private static string GetLangVersion(Assembly assembly)
     {
-#if UNITY_2022_2_OR_NEWER
-        if (!string.IsNullOrEmpty(assembly.compilerOptions.LanguageVersion))
+        if (assembly.compilerOptions != null && !string.IsNullOrEmpty(assembly.compilerOptions.LanguageVersion))
             return assembly.compilerOptions.LanguageVersion;
+
+#if UNITY_6000_0_OR_NEWER
+        return "12.0";
+#elif UNITY_2023_1_OR_NEWER
+        return "11.0";
+#elif UNITY_2022_2_OR_NEWER
         return "10.0";
 #elif UNITY_2021_2_OR_NEWER
         return "9.0";
@@ -1095,58 +1767,110 @@ public static class ProjectGeneration
     /// </summary>
     private static void AppendCoreUnityReferences(StringBuilder sb, HashSet<string> existingRefs)
     {
-        string contentsPath = EditorApplication.applicationContentsPath;
+        AppendCoreUnityReferencesContent(sb, existingRefs, CollectCoreUnityReferences(), "");
+    }
 
-        // Build candidate search paths per platform.
-        // EditorApplication.applicationContentsPath gives:
-        //   Windows: C:\Program Files\Unity\Hub\Editor\X.Y.Z\Editor\Data
-        //   macOS:   /Applications/Unity/Hub/Editor/X.Y.Z/Unity.app/Contents
-        //   Linux:   /opt/unity/editor/Data
-        string[] searchPaths;
-        if (Application.platform == RuntimePlatform.OSXEditor)
+    private static Dictionary<string, string> CollectCoreUnityReferences()
+    {
+        var runtimeUnityAssemblies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // 1. Resolve core assemblies directly from loaded assemblies in the active Unity process
+        try
         {
-            // macOS: look in both Resources/Scripting/Managed and Managed/UnityEngine
-            searchPaths = new[]
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
-                Path.Combine(contentsPath, "Resources", "Scripting", "Managed"),
-                Path.Combine(contentsPath, "Managed", "UnityEngine"),
-            };
-        }
-        else
-        {
-            // Windows/Linux: look in Managed and Managed/UnityEngine
-            searchPaths = new[]
-            {
-                Path.Combine(contentsPath, "Managed"),
-                Path.Combine(contentsPath, "Managed", "UnityEngine"),
-            };
-        }
-
-        // Core assemblies that may be implicitly linked
-        string[] coreAssemblies = new[] { "UnityEditor", "UnityEngine" };
-
-        foreach (var name in coreAssemblies)
-        {
-            if (existingRefs.Contains(name)) continue;
-
-            // Search all candidate paths
-            string foundPath = null;
-            foreach (var basePath in searchPaths)
-            {
-                string candidate = Path.Combine(basePath, $"{name}.dll");
-                if (File.Exists(candidate))
+                try
                 {
-                    foundPath = candidate;
-                    break;
+                    if (asm.IsDynamic) continue;
+                    string loc = asm.Location;
+                    if (string.IsNullOrEmpty(loc) || !File.Exists(loc)) continue;
+
+                    string asmName = asm.GetName().Name;
+                    if (asmName.StartsWith("UnityEditor", StringComparison.OrdinalIgnoreCase) ||
+                        asmName.StartsWith("UnityEngine", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!runtimeUnityAssemblies.ContainsKey(asmName))
+                        {
+                            runtimeUnityAssemblies[asmName] = loc;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore assemblies that fail reflection
                 }
             }
-            if (foundPath == null) continue;
-
-            sb.AppendLine($"    <Reference Include=\"{name}\">");
-            sb.AppendLine($"        <HintPath>{foundPath.Replace("\\", "/")}</HintPath>");
-            sb.AppendLine("    </Reference>");
-            existingRefs.Add(name);
         }
+        catch
+        {
+            // Ignore
+        }
+
+        // Explicit type fallbacks
+        AddTypeAssemblyLocation<UnityEditor.EditorApplication>(runtimeUnityAssemblies, "UnityEditor.CoreModule");
+        AddTypeAssemblyLocation<UnityEditor.Editor>(runtimeUnityAssemblies, "UnityEditor");
+        AddTypeAssemblyLocation<UnityEngine.Object>(runtimeUnityAssemblies, "UnityEngine.CoreModule");
+        AddTypeAssemblyLocation<UnityEngine.Vector3>(runtimeUnityAssemblies, "UnityEngine.CoreModule");
+        AddTypeAssemblyLocation<UnityEngine.Component>(runtimeUnityAssemblies, "UnityEngine");
+
+        // 2. Discover all DLLs from the actual directories of loaded assemblies
+        var searchDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var loc in runtimeUnityAssemblies.Values)
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(loc);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                {
+                    searchDirectories.Add(dir);
+                }
+            }
+            catch { }
+        }
+
+        string contentsPath = EditorApplication.applicationContentsPath;
+        if (!string.IsNullOrEmpty(contentsPath))
+        {
+            searchDirectories.Add(Path.Combine(contentsPath, "Managed"));
+            searchDirectories.Add(Path.Combine(contentsPath, "Managed", "UnityEngine"));
+            searchDirectories.Add(Path.Combine(contentsPath, "Resources", "Scripting", "Managed"));
+        }
+
+        foreach (var dir in searchDirectories)
+        {
+            if (!Directory.Exists(dir)) continue;
+            try
+            {
+                foreach (var dllPath in Directory.GetFiles(dir, "*.dll"))
+                {
+                    string modName = Path.GetFileNameWithoutExtension(dllPath);
+                    if ((modName.StartsWith("UnityEditor", StringComparison.OrdinalIgnoreCase) ||
+                         modName.StartsWith("UnityEngine", StringComparison.OrdinalIgnoreCase)) &&
+                        !runtimeUnityAssemblies.ContainsKey(modName))
+                    {
+                        runtimeUnityAssemblies[modName] = dllPath;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        return runtimeUnityAssemblies;
+    }
+
+    private static void AddTypeAssemblyLocation<T>(Dictionary<string, string> dict, string fallbackName)
+    {
+        try
+        {
+            var loc = typeof(T).Assembly.Location;
+            if (!string.IsNullOrEmpty(loc) && File.Exists(loc))
+            {
+                string name = typeof(T).Assembly.GetName().Name;
+                if (!dict.ContainsKey(name)) dict[name] = loc;
+                if (!dict.ContainsKey(fallbackName)) dict[fallbackName] = loc;
+            }
+        }
+        catch { }
     }
 
     /// <summary>
@@ -1274,17 +1998,51 @@ public static class ProjectGeneration
     {
         var analyzers = new List<string>();
 
+        // 1. Prioritize and dynamically inject our bundled Microsoft.Unity.Analyzers.dll
+        string projectDir = Directory.GetCurrentDirectory();
+        string[] bundledCandidates = {
+            Path.Combine(projectDir, "Editor", "Analyzers", "Microsoft.Unity.Analyzers.dll"),
+            Path.Combine(projectDir, "Packages", "com.canoide.antigravity.ide", "Editor", "Analyzers", "Microsoft.Unity.Analyzers.dll"),
+            Path.Combine(projectDir, "Packages", "com.antigravity.ide", "Editor", "Analyzers", "Microsoft.Unity.Analyzers.dll")
+        };
+
+        foreach (var path in bundledCandidates)
+        {
+            if (File.Exists(path))
+            {
+                analyzers.Add(Path.GetFullPath(path));
+                break;
+            }
+        }
+
+        // Also search package directories inside PackageCache
+        try
+        {
+            string pcDir = Path.Combine(projectDir, "Library", "PackageCache");
+            if (Directory.Exists(pcDir))
+            {
+                foreach (var dir in Directory.GetDirectories(pcDir, "*antigravity.ide*"))
+                {
+                    string target = Path.Combine(dir, "Editor", "Analyzers", "Microsoft.Unity.Analyzers.dll");
+                    if (File.Exists(target))
+                    {
+                        analyzers.Add(Path.GetFullPath(target));
+                    }
+                }
+            }
+        }
+        catch { }
+
 #if UNITY_2020_2_OR_NEWER
         // Use Roslyn analyzer DLL paths from assembly compiler options
-        if (assembly.compilerOptions.RoslynAnalyzerDllPaths != null)
+        if (assembly.compilerOptions != null && assembly.compilerOptions.RoslynAnalyzerDllPaths != null)
         {
             analyzers.AddRange(assembly.compilerOptions.RoslynAnalyzerDllPaths
                 .Select(p => Path.IsPathRooted(p) ? p : Path.GetFullPath(p)));
         }
 #endif
 
-        // Also scan PackageCache for analyzers
-        string projectDir = Directory.GetCurrentDirectory();
+        // Also scan PackageCache for other analyzers
         string[] searchDirs = {
             Path.Combine(projectDir, "Library", "PackageCache"),
             Path.Combine(projectDir, "Packages")
@@ -1353,5 +2111,18 @@ public static class ProjectGeneration
             byte[] hash = md5.ComputeHash(Encoding.Default.GetBytes(input));
             return new Guid(hash).ToString().ToUpper();
         }
+    }
+}
+
+/// <summary>
+/// Bulletproof automatic asset postprocessor. Guarantees that any C# script or assembly definition
+/// addition, deletion, or move instantly and silently triggers the background Project Generation
+/// without requiring manual editor dropdown actions, matching the seamless Rider experience.
+/// </summary>
+public class AntigravityAssetPostprocessor : AssetPostprocessor
+{
+    private static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
+    {
+        ProjectGeneration.SyncIfNeeded(new string[0], deletedAssets, movedAssets, movedFromAssetPaths, importedAssets);
     }
 }

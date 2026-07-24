@@ -92,8 +92,48 @@ const UNITY_MESSAGES: UnityMessage[] = [
     { name: 'OnTransformChildrenChanged', signature: 'void OnTransformChildrenChanged()', description: 'Called when the list of children of the transform has changed.', category: 'Transform' },
 ];
 
+interface UnityAttribute {
+    name: string;
+    insertText: string;
+    description: string;
+    category: string;
+}
+
+const UNITY_ATTRIBUTES: UnityAttribute[] = [
+    { name: 'SerializeField', insertText: 'SerializeField]', description: 'Forces Unity to serialize a private field.', category: 'Serialization' },
+    { name: 'Header', insertText: 'Header("${1:Header Name}")]', description: 'Adds a header text above the field in the Inspector.', category: 'Inspector' },
+    { name: 'Tooltip', insertText: 'Tooltip("${1:Description}")]', description: 'Specify a tooltip for a field in the Inspector.', category: 'Inspector' },
+    { name: 'Range', insertText: 'Range(${1:0}, ${2:1})]', description: 'Restricts a float or int field to a specific range.', category: 'Inspector' },
+    { name: 'Space', insertText: 'Space(${1:10})]', description: 'Adds vertical space in the Inspector.', category: 'Inspector' },
+    { name: 'HideInInspector', insertText: 'HideInInspector]', description: 'Makes a public variable not show up in the Inspector.', category: 'Inspector' },
+    { name: 'FormerlySerializedAs', insertText: 'FormerlySerializedAs("${1:oldName}")]', description: 'Renames a serialized field without losing its value.', category: 'Serialization' },
+    { name: 'RequireComponent', insertText: 'RequireComponent(typeof(${1:Component}))]', description: 'Automatically adds required components as a dependency.', category: 'Component' },
+    { name: 'CreateAssetMenu', insertText: 'CreateAssetMenu(fileName = "${1:NewAsset}", menuName = "${2:Custom}/${1:Asset}")]', description: 'Mark a ScriptableObject class to be created in the Assets menu.', category: 'ScriptableObject' },
+    { name: 'ContextMenu', insertText: 'ContextMenu("${1:Method Name}")]', description: 'Adds a context menu command to the component.', category: 'Inspector' },
+    { name: 'ContextMenuItem', insertText: 'ContextMenuItem("${1:Item Name}", "${2:MethodName}")]', description: 'Adds a context menu item to a field.', category: 'Inspector' },
+    { name: 'ExecuteInEditMode', insertText: 'ExecuteInEditMode]', description: 'Allows a MonoBehaviour to execute in Edit Mode.', category: 'Lifecycle' },
+    { name: 'ExecuteAlways', insertText: 'ExecuteAlways]', description: 'Makes an instance of a script execute constantly.', category: 'Lifecycle' },
+    { name: 'DisallowMultipleComponent', insertText: 'DisallowMultipleComponent]', description: 'Prevents multiple components of the same type being added.', category: 'Component' },
+    { name: 'SelectionBase', insertText: 'SelectionBase]', description: 'Selects the parent object when clicking in Scene view.', category: 'Editor' },
+    { name: 'ColorUsage', insertText: 'ColorUsage(${1:true}, ${2:true})]', description: 'Configure Color picker settings (alpha, HDR).', category: 'Inspector' },
+    { name: 'GradientUsage', insertText: 'GradientUsage(${1:true})]', description: 'Configure Gradient picker settings (HDR).', category: 'Inspector' },
+    { name: 'TextArea', insertText: 'TextArea(${1:3}, ${2:10})]', description: 'Renders string field as a multi-line text area.', category: 'Inspector' },
+    { name: 'Multiline', insertText: 'Multiline(${1:3})]', description: 'Renders string field as a multiline text box.', category: 'Inspector' },
+    { name: 'Min', insertText: 'Min(${1:0})]', description: 'Restricts a float or int field to a minimum value.', category: 'Inspector' },
+    { name: 'Max', insertText: 'Max(${1:100})]', description: 'Restricts a float or int field to a maximum value.', category: 'Inspector' },
+    { name: 'InspectorName', insertText: 'InspectorName("${1:DisplayName}")]', description: 'Changes the display name of an enum value in Inspector.', category: 'Inspector' },
+    { name: 'DefaultExecutionOrder', insertText: 'DefaultExecutionOrder(${1:0})]', description: 'Sets the default execution order for a script.', category: 'Lifecycle' },
+    { name: 'CustomEditor', insertText: 'CustomEditor(typeof(${1:TargetComponent}))]', description: 'Defines a custom editor for a component.', category: 'Editor' },
+    { name: 'CustomPropertyDrawer', insertText: 'CustomPropertyDrawer(typeof(${1:TargetAttribute}))]', description: 'Defines a property drawer for a serializable class/attribute.', category: 'Editor' },
+    { name: 'MenuItem', insertText: 'MenuItem("${1:Tools}/${2:Action}")]', description: 'Adds a main menu item to Unity Editor.', category: 'Editor' },
+    { name: 'CanEditMultipleObjects', insertText: 'CanEditMultipleObjects]', description: 'Allows a custom editor to edit multi-selected objects.', category: 'Editor' },
+    { name: 'Serializable', insertText: 'Serializable]', description: 'Marks a class or struct as serializable by Unity.', category: 'Serialization' },
+    { name: 'NonSerialized', insertText: 'NonSerialized]', description: 'Prevents a public field from being serialized by Unity.', category: 'Serialization' },
+    { name: 'Inject', insertText: 'Inject]', description: 'Dependency injection attribute for VContainer or Zenject.', category: 'DI Framework' },
+];
+
 export function registerCompletionProviders(context: vscode.ExtensionContext) {
-    // C# Unity message completion
+    // C# Unity message and Attribute completion
     const csharpProvider = vscode.languages.registerCompletionItemProvider(
         { language: 'csharp', scheme: 'file' },
         {
@@ -103,16 +143,69 @@ export function registerCompletionProviders(context: vscode.ExtensionContext) {
                 token: vscode.CancellationToken,
                 completionContext: vscode.CompletionContext
             ): vscode.CompletionItem[] {
-                // Only provide completions inside a class body
                 const lineText = document.lineAt(position.line).text;
                 const linePrefix = lineText.substring(0, position.character);
+                const trimmedPrefix = linePrefix.trim();
 
-                // Check if we're likely inside a class body (simple heuristic)
+                // Skip inside comments or strings
+                if (trimmedPrefix.startsWith('//') || trimmedPrefix.startsWith('/*') || trimmedPrefix.startsWith('*')) {
+                    return [];
+                }
+
+                // Check if we're likely inside a class body
                 if (!isInsideClassBody(document, position)) {
                     return [];
                 }
 
-                return UNITY_MESSAGES.map(msg => {
+                // Attribute completion trigger (inside `[` or typing attribute)
+                const bracketMatch = linePrefix.match(/\[([A-Za-z0-9_]*)$/);
+                if (bracketMatch) {
+                    const typedText = bracketMatch[1];
+                    const startPos = new vscode.Position(position.line, position.character - typedText.length);
+                    const range = new vscode.Range(startPos, position);
+
+                    return UNITY_ATTRIBUTES.map(attr => {
+                        const item = new vscode.CompletionItem(attr.name, vscode.CompletionItemKind.Keyword);
+                        item.detail = `[${attr.name}] (${attr.category})`;
+                        item.documentation = new vscode.MarkdownString(`**Unity/C# Attribute** — ${attr.category}\n\n${attr.description}`);
+                        item.range = range;
+                        item.insertText = new vscode.SnippetString(attr.insertText);
+                        item.sortText = `0_attr_${attr.name}`;
+                        item.filterText = attr.name;
+                        return item;
+                    });
+                }
+
+                // Parse existing modifier and return type typed by user to avoid duplicates
+                let modifier = 'private';
+                if (/\bpublic\b/.test(linePrefix)) modifier = 'public';
+                else if (/\bprotected\b/.test(linePrefix)) modifier = 'protected';
+                else if (/\binternal\b/.test(linePrefix)) modifier = 'internal';
+
+                let returnType = 'void';
+                if (/\bIEnumerator\b/.test(linePrefix)) returnType = 'IEnumerator';
+
+                // Determine the range of the typed keywords to replace
+                const wordRange = document.getWordRangeAtPosition(position);
+                let startCharacter = position.character;
+
+                // Match patterns like "private void Up" or "void Up" or just "Up"
+                const match = linePrefix.match(/(?:public|private|protected|internal)?\s*(?:virtual|override)?\s*(?:void|IEnumerator)?\s*[\w]*$/);
+                if (match && match[0].trim().length > 0) {
+                    startCharacter = linePrefix.indexOf(match[0]);
+                    if (startCharacter < 0) {
+                        startCharacter = wordRange ? wordRange.start.character : position.character;
+                    }
+                } else if (wordRange) {
+                    startCharacter = wordRange.start.character;
+                }
+
+                const replacementRange = new vscode.Range(
+                    new vscode.Position(position.line, startCharacter),
+                    position
+                );
+
+                const messageItems = UNITY_MESSAGES.map(msg => {
                     const item = new vscode.CompletionItem(
                         msg.name,
                         vscode.CompletionItemKind.Method
@@ -120,13 +213,14 @@ export function registerCompletionProviders(context: vscode.ExtensionContext) {
 
                     item.detail = `${msg.signature} [${msg.category}]`;
                     item.documentation = new vscode.MarkdownString(
-                        `**Unity API Message** — ${msg.category}\n\n${msg.description}\n\n\`\`\`csharp\nprivate ${msg.signature}\n{\n    \n}\n\`\`\``
+                        `**Unity API Message** — ${msg.category}\n\n${msg.description}\n\n\`\`\`csharp\n${modifier} ${msg.signature.replace('void', returnType)}\n{\n    \n}\n\`\`\``
                     );
 
-                    // Insert the full method
-                    const params = extractParams(msg.signature);
+                    // Insert full method with correct signature and placement
+                    const signature = msg.signature.replace('void', returnType);
+                    item.range = replacementRange;
                     item.insertText = new vscode.SnippetString(
-                        `private ${msg.signature}\n{\n    $0\n}`
+                        `${modifier} ${signature}\n{\n    $0\n}`
                     );
 
                     item.sortText = `0_unity_${msg.name}`;
@@ -134,8 +228,11 @@ export function registerCompletionProviders(context: vscode.ExtensionContext) {
 
                     return item;
                 });
+
+                return messageItems;
             }
-        }
+        },
+        '['
     );
 
     // Unity API hover provider
@@ -175,13 +272,18 @@ function isInsideClassBody(document: vscode.TextDocument, position: vscode.Posit
     let braceCount = 0;
     let foundClass = false;
 
+    // Scan backwards from current line to find nearest class definition
+    for (let i = position.line; i >= 0; i--) {
+        const line = document.lineAt(i).text;
+        if (line.match(/\bclass\b/)) {
+            foundClass = true;
+            break;
+        }
+    }
+
+    // Count braces up to position
     for (let i = 0; i <= position.line; i++) {
         const line = document.lineAt(i).text;
-
-        if (line.match(/\bclass\b/) && line.match(/:\s*(MonoBehaviour|NetworkBehaviour|ScriptableObject)/)) {
-            foundClass = true;
-        }
-
         for (const char of line) {
             if (char === '{') braceCount++;
             if (char === '}') braceCount--;

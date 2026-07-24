@@ -9,4 +9,5 @@
 !syntaxes/**
 !language-configuration/**
 !assets/icon.png
+!assets/unity-explorer-icon.svg
 release-extension.ps1
